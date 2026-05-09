@@ -40,3 +40,14 @@ local-data/
 # Eval outputs
 agents/*/evals/results/
 agents/*/local-runs/
+
+# labMemoryAgent runtime state (created by provision.py — environment-specific Foundry IDs)
+agents/*/config/agent-state.json
+agents/*/config/ingest-state.json
+
+# Timestamped optimize_prompt.py artifacts (similar to evals/results/)
+agents/*/config/optimization-rationale-*.md
+agents/*/config/optimized-prompt-*.md
+
+# Nested playground sandbox (separate git repo)
+playground/

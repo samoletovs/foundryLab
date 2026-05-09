@@ -1,0 +1,15 @@
+{"query": "Why does foundryLab exist?", "expected_sources": ["foundryLab/README.md", "foundryLab/docs/vision.md"], "category": "vision", "kind": "grounded"}
+{"query": "What region is foundryLab deployed in and why?", "expected_sources": ["foundryLab/docs/learnings.md", "foundryLab/docs/comparison.md"], "category": "decision", "kind": "grounded"}
+{"query": "What is rosette and what does it do?", "expected_sources": ["rosette/README.md", "rosette/AGENTS.md"], "category": "project-overview", "kind": "grounded"}
+{"query": "What tech stack does the agentMode project use?", "expected_sources": ["agentMode/README.md", "agentMode/AGENTS.md"], "category": "project-overview", "kind": "grounded"}
+{"query": "How do I create a new project in NauroLabs?", "expected_sources": [".github/WORKSPACE.md"], "category": "process", "kind": "grounded"}
+{"query": "What does .github/VISION.md say is the long-term goal of NauroLabs?", "expected_sources": [".github/VISION.md", "foundryLab/docs/vision.md"], "category": "vision", "kind": "grounded"}
+{"query": "Which projects are in the workspace and what is their type?", "expected_sources": [".github/config/workspace-manifest.json"], "category": "manifest", "kind": "grounded"}
+{"query": "What are the 4 core questions NauroLabs is trying to answer?", "expected_sources": [".github/VISION.md", "foundryLab/docs/vision.md"], "category": "strategy", "kind": "grounded"}
+{"query": "What's the difference between Foundry's Basic and Standard agent setup?", "expected_sources": ["foundryLab/docs/learnings.md", "foundryLab/docs/comparison.md"], "category": "foundry-knowledge", "kind": "grounded"}
+{"query": "What did the most recent nauro-plan report recommend as the priority?", "expected_sources": [".github/reports/plan/plan-2026-04-14-2.md", ".github/reports/plan/plan-2026-04-14-1.md", ".github/reports/plan/plan-2026-04-13.md"], "category": "report", "kind": "grounded"}
+{"query": "Why was northeurope rejected as a region for foundryLab?", "expected_sources": ["foundryLab/docs/learnings.md"], "category": "decision", "kind": "grounded-multi-hop"}
+{"query": "Which projects use Cosmos DB?", "expected_sources": [".github/config/workspace-manifest.json", "era/README.md", "tPlan/README.md"], "category": "cross-project", "kind": "grounded-multi-hop"}
+{"query": "What is the capital of Iceland?", "expected_sources": [], "category": "world-knowledge", "kind": "ungrounded"}
+{"query": "What was Sam's flight to Tokyo last week?", "expected_sources": [], "category": "personal", "kind": "ungrounded"}
+{"query": "How many users does ChatGPT have?", "expected_sources": [], "category": "world-knowledge", "kind": "ungrounded"}

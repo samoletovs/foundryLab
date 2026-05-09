@@ -18,7 +18,7 @@ We answer it by building 5 agents in priority order, recording learnings as we g
 
 | # | Agent | Folder | Status | Goal |
 |---|-------|--------|--------|------|
-| 1 | Lab Memory Agent | [agents/labMemoryAgent](./agents/labMemoryAgent/) | 📋 planned | Test RAG / knowledge grounding |
+| 1 | Lab Memory Agent | [agents/labMemoryAgent](./agents/labMemoryAgent/) | ✅ P0+P1+P2+P3 done | Test RAG / knowledge grounding |
 | 2 | NauroLabs Watcher | _not started_ | — | Test scheduled hosted agents |
 | 3 | AgentMode Dataset Curator | _not started_ | — | Test evals + prompt optimizer |
 | 4 | Idea Validator | _not started_ | — | Test connected multi-agent |

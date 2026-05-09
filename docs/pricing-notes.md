@@ -42,6 +42,16 @@ _Fill in after each month._
 - One smoke-test inference: 22 tokens total ≈ €0.000004
 - Region: `swedencentral` (overrides workspace default — see learnings.md)
 
+### 2026-05-09 — Phase 1+2+3 complete
+- Ingested 56 files / 689 KB into Foundry vector store
+- File search storage: under the 1 GB free threshold → €0 storage
+- gpt-4o-mini deployment capacity bumped from 50 → 200 (no $ change)
+- Eval cycles ran (baseline + optimized): ~30 file_search calls × ~10K tokens = ~300K tokens = ~€0.06
+- Prompt optimizer call: ~3K tokens = ~€0.001
+- Cumulative spend so far: ~€0.10 across all 3 phases
+- Embedding deployment unused — Foundry Basic uses MS-managed embeddings.
+  Idle cost remains €0.
+
 ### Template for future months
 ```
 ### 2026-MM

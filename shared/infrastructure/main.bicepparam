@@ -8,7 +8,7 @@ param ownerObjectId = ''
 
 param chatModelName = 'gpt-4o-mini'
 param chatModelVersion = '2024-07-18'
-param chatModelCapacity = 50
+param chatModelCapacity = 200
 
 param embedModelName = 'text-embedding-3-large'
 param embedModelVersion = '1'

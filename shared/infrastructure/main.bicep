@@ -28,6 +28,17 @@ param chatModelVersion string = '2024-07-18'
 @maxValue(9000)
 param chatModelCapacity int = 50
 
+@description('Higher-quality chat model for synthesis-heavy agents (e.g. labMemoryAgent)')
+param premiumChatModelName string = 'gpt-4o'
+
+@description('Premium chat model version')
+param premiumChatModelVersion string = '2024-11-20'
+
+@description('Capacity for the premium chat deployment')
+@minValue(1)
+@maxValue(2000)
+param premiumChatModelCapacity int = 100
+
 @description('Embedding model used by RAG-style agents (e.g. labMemoryAgent)')
 param embedModelName string = 'text-embedding-3-large'
 
@@ -50,6 +61,8 @@ param tags object = {
 // Built-in role IDs
 // Azure AI Developer: scope-wide control over agents, evals, datasets in a project
 var azureAIDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
+// Azure AI User: data-plane actions on agents/threads/runs/files (required to actually use a project)
+var azureAIUserRoleId = '53ca6127-db72-4b80-b1b0-d745d6d5456d'
 // Cognitive Services OpenAI User: lets a principal call Azure OpenAI inference APIs
 var cognitiveServicesOpenAIUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 
@@ -146,6 +159,29 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-0
   }
 }
 
+// Premium chat model deployment — for synthesis-heavy agents that need
+// stronger reasoning than mini provides. Pay-per-token, no idle cost.
+resource premiumChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiServices
+  name: premiumChatModelName
+  sku: {
+    name: 'GlobalStandard'
+    capacity: premiumChatModelCapacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: premiumChatModelName
+      version: premiumChatModelVersion
+    }
+    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+    raiPolicyName: 'Microsoft.DefaultV2'
+  }
+  dependsOn: [
+    chatDeployment
+  ]
+}
+
 // Embedding model deployment — enables RAG for labMemoryAgent
 // Sequenced after chatDeployment because parallel deployment of two models on the same
 // account sometimes hits a transient 409.
@@ -195,8 +231,8 @@ resource diag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   }
 }
 
-// Owner gets full developer access on the project (portal + CLI + SDK)
-resource ownerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Owner gets management-plane developer access (portal, CLI, deployments) on the account
+resource ownerDeveloperRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: aiServices
   name: guid(aiServices.id, ownerObjectId, azureAIDeveloperRoleId)
   properties: {
@@ -206,7 +242,18 @@ resource ownerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-// UAMI gets inference access — agents that run as this identity can call AOAI
+// Owner gets data-plane access (create/use agents, threads, runs, files) at project scope
+resource ownerProjectUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: project
+  name: guid(project.id, ownerObjectId, azureAIUserRoleId)
+  properties: {
+    principalId: ownerObjectId
+    principalType: 'User'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', azureAIUserRoleId)
+  }
+}
+
+// UAMI: AOAI inference access on the account
 resource uamiInferenceRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: aiServices
   name: guid(aiServices.id, uami.id, cognitiveServicesOpenAIUserRoleId)
@@ -214,6 +261,17 @@ resource uamiInferenceRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
     principalId: uami.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAIUserRoleId)
+  }
+}
+
+// UAMI: data-plane access on the project so future agent runtimes can create/run agents
+resource uamiProjectUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: project
+  name: guid(project.id, uami.id, azureAIUserRoleId)
+  properties: {
+    principalId: uami.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', azureAIUserRoleId)
   }
 }
 
@@ -228,6 +286,9 @@ output projectResourceId string = project.id
 
 @description('Chat model deployment name')
 output chatDeploymentName string = chatDeployment.name
+
+@description('Premium chat model deployment name')
+output premiumChatDeploymentName string = premiumChatDeployment.name
 
 @description('Embedding model deployment name')
 output embedDeploymentName string = embedDeployment.name

@@ -31,6 +31,8 @@ from azure.ai.agents import AgentsClient
 from azure.ai.agents.models import (
     FilePurpose,
     VectorStoreExpirationPolicy,
+    VectorStoreStaticChunkingStrategyOptions,
+    VectorStoreStaticChunkingStrategyRequest,
 )
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
@@ -143,21 +145,39 @@ def delete_store_and_files(client: AgentsClient, store: Any) -> None:
             log.warning("  failed to delete file %s: %s", fid, exc)
 
 
+def _build_path_header(src: SourceFile) -> str:
+    """A small machine-readable header prepended to each uploaded file.
+
+    Foundry strips path prefixes from filenames (so 9 different README.md files
+    are indistinguishable in citations). Embedding the path INTO the file
+    content fixes both retrieval (path tokens become part of chunk embeddings)
+    and disambiguation (model can read the source line in retrieved chunks).
+    """
+    tag_pairs = " ".join(f"{k}={v}" for k, v in sorted(src.tags.items()))
+    return (
+        f"# Source: {src.relative_path}\n"
+        f"# Tags: {tag_pairs}\n"
+        f"# (path-aware ingest header — original content begins below this line)\n\n"
+    )
+
+
 def upload_file(client: AgentsClient, src: SourceFile) -> str:
-    """Upload one file. Returns the Foundry file_id."""
-    # Foundry filenames are global to the agent; prefix with source_path so they
-    # remain unique even when basenames collide (e.g. several README.md).
-    safe_name = src.relative_path.replace("/", "__").replace("\\", "__")
+    """Upload one file with a Source/Tags header prepended. Returns file_id."""
     suffix = src.path.suffix.lower()
     if suffix not in {".md", ".txt", ".json", ".yaml", ".yml"}:
-        # Foundry accepts a wider range, but for v1 we only ingest plain text.
         log.warning("  skipping unsupported file type: %s", src.relative_path)
         return ""
 
-    log.info("  upload  %s", src.relative_path)
+    safe_name = src.relative_path.replace("/", "__").replace("\\", "__")
+    raw = src.path.read_bytes()
+    # Header is prepended as text; we encode utf-8 so JSON files still survive
+    # (they remain valid because the header is in markdown comments).
+    payload = _build_path_header(src).encode("utf-8") + raw
+
+    log.info("  upload  %s  (%d bytes + %d header)",
+             src.relative_path, len(raw), len(payload) - len(raw))
     result = client.files.upload_and_poll(
-        file_path=str(src.path),
-        filename=safe_name,
+        file=(safe_name, payload),
         purpose=FilePurpose.AGENTS,
         polling_interval=0.5,
     )
@@ -215,6 +235,15 @@ def ingest() -> None:
         VECTOR_STORE_NAME,
         len(file_ids),
     )
+    # Smaller chunks (default is ~800 tokens) so each chunk is more focused and
+    # the # Source: header at the top of each file dominates a higher fraction
+    # of the embedding vector for short technical docs (READMEs, AGENTS.md).
+    chunking = VectorStoreStaticChunkingStrategyRequest(
+        static=VectorStoreStaticChunkingStrategyOptions(
+            max_chunk_size_tokens=500,
+            chunk_overlap_tokens=120,
+        ),
+    )
     store = client.vector_stores.create_and_poll(
         file_ids=file_ids,
         name=VECTOR_STORE_NAME,
@@ -222,6 +251,7 @@ def ingest() -> None:
             anchor="last_active_at",
             days=365,
         ),
+        chunking_strategy=chunking,
         polling_interval=2.0,
     )
     log.info(

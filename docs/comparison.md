@@ -38,12 +38,42 @@ Need agent →
 
 ## Per-agent observations
 
-### Lab Memory Agent (planned)
-_Fill in after build._
-- DX impressions:
-- Eval results:
-- Cost (€/mo):
-- Verdict:
+### Lab Memory Agent (final, 4-phase iteration complete)
+- **DX impressions:** Foundry's Basic agent setup eliminates RAG plumbing —
+  we wrote 0 lines of chunking, embedding, or vector-DB code. Compare to a
+  custom Azure stack: AI Search index + skillset + per-file embedding job
+  + retrieval client + result reranking ≈ days of work for the same
+  outcome. Total foundryLab time spent on labMemoryAgent: ~7 hours
+  including all troubleshooting, provisioning, and 4 eval cycles.
+- **Eval results across 4 runs (15-item golden dataset):**
+  | Metric | Baseline | Optimized prompt | + Path headers + small chunks | **+ temperature=0.2 (final)** |
+  |---|---|---|---|---|
+  | cited_expected | 0.67 | 0.67 | 0.83 | **0.92** |
+  | citation_recall | 0.56 | 0.51 | 0.69 | **0.75** |
+  | has_citations | 0.83 | 1.00 | 1.00 | 0.92 |
+  | refusal_accuracy | 1.0 | 1.0 | 1.0 | 1.0 |
+  | Mean latency | 7.1s | 6.7s | 5.8s | 6.5s |
+- **Foundry prompt-optimizer experience:** MCP tool was unusable due to
+  per-session auth caching. Wrote our own ~150 LOC optimizer that
+  performed identically. Foundry-specific value: the file_search service
+  itself (auto-chunking, auto-embedding) and the persistent agent
+  abstraction.
+- **Cost (€/mo):** € 0 idle. Eval cycles cost ~€0.05 each. Cumulative
+  spend across all phases <€0.20. Estimated <€2/mo at planned query volumes.
+- **Verdict:** For < 1 GB private corpora with mostly markdown, Foundry
+  Basic file_search is a clear win over rolling your own RAG.
+  Final caveats:
+  1. Foundry strips path prefixes from filenames — embed paths into
+     content (we use `# Source: <path>` headers).
+  2. Default temperature gives stochastic answers — set `temperature=0.2`
+     when creating the agent.
+  3. Smaller chunks (500/120 tokens) outperform the default for short
+     markdown docs.
+  4. Agent runtime can be inconsistent with newly-deployed models
+     (we hit `invalid_deployment` errors on gpt-4o despite REST working).
+     Deploy all candidate models in Phase 0 Bicep, not later.
+  5. The eval framework is portable Python; not Foundry-specific. Keep
+     it independent so we can swap in any agent backend.
 
 ### NauroLabs Watcher (not started)
 
