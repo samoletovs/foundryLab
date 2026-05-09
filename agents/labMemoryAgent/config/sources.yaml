@@ -1,0 +1,118 @@
+# Lab Memory Agent — knowledge sources to ingest
+#
+# Each entry can be:
+#   - a single file path (relative to workspace root)
+#   - a glob pattern (matched against workspace root)
+#
+# `tags` are attached as metadata to every uploaded file so we can later
+# filter retrieval by project or category.
+#
+# IMPORTANT: paths use forward slashes so globbing works cross-platform.
+
+sources:
+  # --- Strategic / governance docs ---
+  - name: vision
+    paths:
+      - .github/VISION.md
+    tags:
+      category: vision
+      scope: lab
+
+  - name: workspace-conventions
+    paths:
+      - .github/WORKSPACE.md
+    tags:
+      category: conventions
+      scope: lab
+
+  - name: workspace-manifest
+    paths:
+      - .github/config/workspace-manifest.json
+    tags:
+      category: manifest
+      scope: lab
+
+  # --- Lab management agent reports (the main institutional memory) ---
+  - name: plan-reports
+    paths:
+      - .github/reports/plan/*.md
+    tags:
+      category: report
+      scope: lab
+      agent: nauro-plan
+
+  - name: ops-reports
+    paths:
+      - .github/reports/ops/*.md
+    tags:
+      category: report
+      scope: lab
+      agent: nauro-ops
+
+  - name: build-reports
+    paths:
+      - .github/reports/build/**/*.md
+    tags:
+      category: report
+      scope: lab
+      agent: nauro-build
+
+  - name: run-reports
+    paths:
+      - .github/reports/run/**/*.md
+    tags:
+      category: report
+      scope: lab
+      agent: nauro-run
+
+  # --- Per-project READMEs and AI guidance ---
+  - name: project-readmes
+    paths:
+      - agentMode/README.md
+      - amberRepublic/README.md
+      - era/README.md
+      - golazo/README.md
+      - portaBaltica/README.md
+      - rosette/README.md
+      - tPlan/README.md
+      - turgo/README.md
+      - foundryLab/README.md
+    tags:
+      category: readme
+      scope: project
+
+  - name: project-agents-md
+    paths:
+      - agentMode/AGENTS.md
+      - amberRepublic/AGENTS.md
+      - era/AGENTS.md
+      - golazo/AGENTS.md
+      - portaBaltica/AGENTS.md
+      - rosette/AGENTS.md
+      - tPlan/AGENTS.md
+      - turgo/AGENTS.md
+      - foundryLab/AGENTS.md
+    tags:
+      category: agents-guide
+      scope: project
+
+  # --- Project-specific vision and blueprint docs ---
+  - name: project-visions
+    paths:
+      - golazo/docs/VISION.md
+      - portaBaltica/VISION.md
+      - tPlan/docs/VISION.md
+      - foundryLab/docs/vision.md
+    tags:
+      category: vision
+      scope: project
+
+  # --- foundryLab learnings (so the agent knows about itself) ---
+  - name: foundrylab-learnings
+    paths:
+      - foundryLab/docs/learnings.md
+      - foundryLab/docs/comparison.md
+      - foundryLab/docs/pricing-notes.md
+    tags:
+      category: learning
+      scope: lab

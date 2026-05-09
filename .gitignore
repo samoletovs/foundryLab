@@ -1,0 +1,42 @@
+# Env & secrets
+.env
+.env.local
+*.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Foundry / Azure
+.azure/
+*.azd-env
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & local data
+*.log
+logs/
+local-data/
+*.sqlite
+*.db
+
+# Eval outputs
+agents/*/evals/results/
+agents/*/local-runs/

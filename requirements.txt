@@ -1,0 +1,21 @@
+# Shared Python dependencies for all foundryLab agents
+# Install: pip install -r foundryLab/requirements.txt
+
+# Foundry SDK + auth
+azure-ai-projects>=1.0.0
+azure-ai-agents>=1.1.0
+azure-identity>=1.19.0
+
+# Foundry agents are OpenAI-compatible; openai client also works
+openai>=1.55.0
+
+# Config + data handling
+pyyaml>=6.0.2
+python-dotenv>=1.0.1
+
+# Observability
+azure-monitor-opentelemetry>=1.6.0
+
+# Dev tools
+pytest>=8.3.0
+ruff>=0.7.0
