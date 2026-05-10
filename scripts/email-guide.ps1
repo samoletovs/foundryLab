@@ -3,19 +3,21 @@
   Open an Outlook draft with the foundryLab learning guide attached.
 
 .DESCRIPTION
-  Creates a draft email (NOT sent) in Outlook, addressed to 146099412+samoletovs@users.noreply.github.com,
-  with foundryLab/docs/learning-guide.md attached. You review and click Send.
+  Creates a draft email (NOT sent) in Outlook, addressed to the recipient you
+  pass via -To, with foundryLab/docs/learning-guide.md attached. You review
+  and click Send.
 
   Falls back gracefully if Outlook is not installed: prints the file path and
   a suggested subject so you can attach manually.
 
 .EXAMPLE
-  ./email-guide.ps1
+  ./email-guide.ps1 -To you@example.com
 #>
 
 [CmdletBinding()]
 param(
-  [string]$To = "146099412+samoletovs@users.noreply.github.com",
+  [Parameter(Mandatory = $true)]
+  [string]$To,
   [string]$Subject = "[foundryLab] Agent Development Primer for D365 Consultants",
   [string]$GuidePath = "$PSScriptRoot\..\docs\learning-guide.md"
 )
