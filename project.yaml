@@ -1,0 +1,14 @@
+name: foundryLab
+purpose: "Microsoft Foundry experiment hub — learn Foundry capabilities and compare against alternatives"
+users: "Developers researching agent platforms"
+stage: research
+goals:
+  - "Test Foundry RAG and knowledge grounding"
+  - "Compare Foundry vs alternatives by cost and DX"
+  - "Prototype agents (Watcher, Dataset Curator, Idea Validator)"
+  - "Document learnings in cross-agent knowledge base"
+similar:
+  - "LangChain experiments"
+  - "Agent SDK research projects"
+quality:
+  - tests
