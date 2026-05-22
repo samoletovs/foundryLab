@@ -10,5 +10,4 @@ goals:
 similar:
   - "LangChain experiments"
   - "Agent SDK research projects"
-quality:
-  - tests
+quality: []
