@@ -1,20 +1,20 @@
-# foundryLab — Microsoft Foundry experiment hub
+# foundryLab
 
-A NauroLabs research project to learn Microsoft Foundry by building real agents,
-and to **compare** it against alternative approaches: Copilot Studio, custom Azure
-Functions + OpenAI, and Claude Agent SDK.
+foundryLab is a Microsoft Foundry experiment hub. It builds small, evaluated
+agents to compare Foundry with alternatives such as custom Azure agents and
+Copilot Studio.
 
-This is **not a product**. It's a learning lab. Each agent here exists to answer
-a specific question about Foundry's capabilities, cost, and developer experience.
+## Research question
 
-## Why foundryLab exists
+foundryLab supports the nauroLabs question **"Can a company run itself?"** by
+testing whether a managed agent platform makes the lab's own automation easier
+to operate, evaluate, and understand. The practical question is narrower:
+**when is Foundry the right tool, and when is it unnecessary platform overhead?**
 
-NauroLabs already runs custom agents (`agentMode/`, the `nauro-*` skills).
-The open question: **when is Foundry the right tool, and when is it overkill?**
+This is a learning lab, not a product. Each agent exists to answer a specific
+question about capability, cost, or developer experience.
 
-We answer it by building 5 agents in priority order, recording learnings as we go.
-
-## Status
+## Agent roadmap
 
 | # | Agent | Folder | Status | Goal |
 |---|-------|--------|--------|------|
@@ -24,7 +24,7 @@ We answer it by building 5 agents in priority order, recording learnings as we g
 | 4 | Idea Validator | _not started_ | — | Test connected multi-agent |
 | 5 | Receipt Processor | _not started_ | — | Test multimodal vision |
 
-See [docs/vision.md](./docs/vision.md) for full plan and rationale.
+See [docs/vision.md](docs/vision.md) for the plan and rationale.
 
 ## Structure
 
@@ -45,15 +45,7 @@ foundryLab/
 └── scripts/                  # cross-agent scripts (created when needed)
 ```
 
-## Conventions
-
-- **One Foundry project, one resource group** (`foundrylab-rg`, `northeurope`)
-- **One App Insights** for all agents (centralized observability)
-- **Each agent isolated** under `agents/<name>/` with its own README, evals, infra
-- **Cost cap target**: total of all agents ≤ €10/month
-- **Default model**: `gpt-4o-mini`. Upgrade per-agent only if quality demands it.
-
-## Tech stack
+## Stack
 
 - Microsoft Foundry (agents + evals + datasets)
 - Azure OpenAI (`gpt-4o-mini` default)
@@ -61,19 +53,31 @@ foundryLab/
 - Python 3.11 (Foundry SDK)
 - DefaultAzureCredential everywhere — no API keys
 
-## Environment
+## Run locally
 
-- Azure subscription: Visual Studio Enterprise
-- Region: `northeurope`
-- GitHub: `samoletovs/foundryLab` (private)
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
 
-## Getting started
+Azure-backed examples require an authenticated Azure CLI session and values in
+`.env`. Start with
+[agents/labMemoryAgent/README.md](agents/labMemoryAgent/README.md) for the
+implemented agent. There is not yet a repository-level automated test suite;
+each agent documents its own evaluations and smoke checks.
 
-1. Copy `.env.example` to `.env` and fill in values
-2. Read [docs/vision.md](./docs/vision.md) for context
-3. Pick an agent folder under `agents/`, follow its README
+## Status
+
+**Research.** The lab memory agent has completed its ingestion, provisioning,
+and evaluation phases. The other candidate agents are not started. Findings are
+recorded in [docs/learnings.md](docs/learnings.md) and
+[docs/comparison.md](docs/comparison.md).
 
 ## Related projects
 
-- [agentMode](../agentMode/) — the custom-Azure baseline we're comparing against
-- [.github/skills/microsoft-foundry](../.github/skills/microsoft-foundry/SKILL.md) — Foundry deployment skill
+- [agentMode](https://github.com/samoletovs/agentMode) - custom Azure baseline
+
+## License
+
+MIT

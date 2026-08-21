@@ -25,6 +25,7 @@ build/
 !.vscode/settings.json
 !.vscode/extensions.json
 .idea/
+*.code-workspace
 
 # OS
 .DS_Store

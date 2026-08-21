@@ -36,7 +36,7 @@ section — the concrete is the anchor.
 
 NauroLabs has 5 active project folders, plus weekly *plan* and *ops* reports
 written by AI agents that scan the workspace, plus vision docs and per-project
-READMEs. About 56 markdown files, ~700 KB. Sam used to read them by hand to
+READMEs. About 56 markdown files, ~700 KB. The maintainer used to read them by hand to
 remember what was decided last week.
 
 We built **`lab-memory`** — a Microsoft Foundry agent that:
