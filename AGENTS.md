@@ -26,8 +26,17 @@ Foundry agent with its own purpose, deployment, and evaluation suite.
 
 ## Cost discipline
 
-- Default model: `gpt-4o-mini`
-- Upgrade to `gpt-4o` only if mini fails an eval gate
+- Default model: `gpt-6-luna` (`2026-09-22`), bounded output and no reasoning for routine work
+- Premium candidate: `gpt-6-sol` (`2026-09-22`) only for bounded, explicitly selected synthesis
+- Chat Completions function tools require `reasoning_effort='none'` on both GPT-6 deployments.
+  Pure Sol synthesis can use `low`; use `max_completion_tokens`, not `max_tokens`.
+- Shared deployments are pay-per-token, not free. The approved pilot targets at most
+  $10/month incremental inference within the lab's $80/credit-cycle ceiling.
+- `gpt-4o-mini` and `gpt-4.1` remain explicit supported rollback deployments during the pilot.
+- Speech-to-text uses `gpt-4o-mini-transcribe` (`2025-12-15`); never pick its retiring
+  `2025-03-20` version. Keep Whisper until every consumer has passed migration checks.
+- Run `scripts/evaluate_model_refresh.py` only with synthetic fixtures and its cost ceiling;
+  the five-case gate proves compatibility, not superiority on customer workloads.
 - No always-on containers — use scheduled jobs or hosted agents on demand
 - No Bing Grounding ($35 / 1000 queries) — use direct API calls
 - Vector store / file search: only enable if RAG quality demands it
