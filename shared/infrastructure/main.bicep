@@ -26,7 +26,7 @@ param chatModelVersion string = '2026-09-22'
 @description('Capacity (thousands of tokens per minute) for the chat deployment')
 @minValue(1)
 @maxValue(9000)
-param chatModelCapacity int = 10
+param chatModelCapacity int = 100
 
 @description('Higher-quality chat model for synthesis-heavy agents (e.g. labMemoryAgent)')
 param premiumChatModelName string = 'gpt-6-sol'
@@ -37,7 +37,7 @@ param premiumChatModelVersion string = '2026-09-22'
 @description('Capacity for the premium chat deployment')
 @minValue(1)
 @maxValue(2000)
-param premiumChatModelCapacity int = 10
+param premiumChatModelCapacity int = 50
 
 @description('Supported speech-to-text replacement for Whisper 001')
 param transcriptionModelName string = 'gpt-4o-mini-transcribe'
