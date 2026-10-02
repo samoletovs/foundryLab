@@ -18,26 +18,32 @@ param location string = resourceGroup().location
 param ownerObjectId string
 
 @description('Default chat model to deploy on the Foundry account')
-param chatModelName string = 'gpt-4o-mini'
+param chatModelName string = 'gpt-6-luna'
 
 @description('Default chat model version')
-param chatModelVersion string = '2024-07-18'
+param chatModelVersion string = '2026-09-22'
 
 @description('Capacity (thousands of tokens per minute) for the chat deployment')
 @minValue(1)
 @maxValue(9000)
-param chatModelCapacity int = 50
+param chatModelCapacity int = 10
 
 @description('Higher-quality chat model for synthesis-heavy agents (e.g. labMemoryAgent)')
-param premiumChatModelName string = 'gpt-4o'
+param premiumChatModelName string = 'gpt-6-sol'
 
 @description('Premium chat model version')
-param premiumChatModelVersion string = '2024-11-20'
+param premiumChatModelVersion string = '2026-09-22'
 
 @description('Capacity for the premium chat deployment')
 @minValue(1)
 @maxValue(2000)
-param premiumChatModelCapacity int = 100
+param premiumChatModelCapacity int = 10
+
+@description('Supported speech-to-text replacement for Whisper 001')
+param transcriptionModelName string = 'gpt-4o-mini-transcribe'
+
+@description('Pin the supported transcription version, not the retiring 2025-03-20 version')
+param transcriptionModelVersion string = '2025-12-15'
 
 @description('Embedding model used by RAG-style agents (e.g. labMemoryAgent)')
 param embedModelName string = 'text-embedding-3-large'
@@ -154,7 +160,7 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-0
       name: chatModelName
       version: chatModelVersion
     }
-    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+    versionUpgradeOption: 'NoAutoUpgrade'
     raiPolicyName: 'Microsoft.DefaultV2'
   }
 }
@@ -174,11 +180,32 @@ resource premiumChatDeployment 'Microsoft.CognitiveServices/accounts/deployments
       name: premiumChatModelName
       version: premiumChatModelVersion
     }
-    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+    versionUpgradeOption: 'NoAutoUpgrade'
     raiPolicyName: 'Microsoft.DefaultV2'
   }
   dependsOn: [
     chatDeployment
+  ]
+}
+
+resource transcriptionDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiServices
+  name: transcriptionModelName
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 1
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: transcriptionModelName
+      version: transcriptionModelVersion
+    }
+    versionUpgradeOption: 'NoAutoUpgrade'
+    raiPolicyName: 'Microsoft.DefaultV2'
+  }
+  dependsOn: [
+    premiumChatDeployment
   ]
 }
 
@@ -202,7 +229,7 @@ resource embedDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
     raiPolicyName: 'Microsoft.DefaultV2'
   }
   dependsOn: [
-    chatDeployment
+    transcriptionDeployment
   ]
 }
 

@@ -1,6 +1,33 @@
 # Pricing Notes — actual cost observations
 
-Update after each Azure billing cycle. Goal: total foundryLab spend ≤ €10/mo.
+Update after each Azure billing cycle. The 2026-10-02 approved pilot uses a
+$15/calendar-month **shared model account** ceiling and a $10/month incremental
+pilot target inside the lab's $80/credit-cycle total ceiling. These are spending
+controls, not the Azure credit balance; native-currency alerts remain separate.
+
+## Model-refresh pilot (2026-10-02)
+
+Azure retail API, Sweden Central, Global Standard, short-context USD per million:
+
+| Deployment | Uncached input | Cached input | Output |
+|------------|----------------|--------------|--------|
+| `gpt-6-luna` (`2026-09-22`) | $0.10 | $0.01 | $0.50 |
+| `gpt-6-sol` (`2026-09-22`) | $2.00 | $0.20 | $10.00 |
+
+Output includes reasoning tokens. Cache writes, long-context requests and tool
+charges can increase the bill. Never apply the historical cached-mini blended
+rate below to these models or all shared-account tokens.
+
+The new deployments have capacity 10 and no fixed idle inference charge.
+Supported old deployments remain explicit rollback options during verification.
+Use `scripts/evaluate_model_refresh.py` for bounded synthetic JSON and tool
+compatibility checks. A five-case smoke gate is not evidence of better product
+quality; compare real task fixtures before expanding a premium workload.
+
+Live migration checks found that Sol function tools on Chat Completions require
+`reasoning_effort='none'`; use `low` only for pure synthesis. Both use
+`max_completion_tokens`. GPT-4o-mini transcription is pinned to `2025-12-15`,
+not the retiring `2025-03-20` version.
 
 ## Estimated baselines (before measurement)
 
