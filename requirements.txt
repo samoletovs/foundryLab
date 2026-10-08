@@ -3,11 +3,13 @@
 
 # Foundry SDK + auth
 # Foundry Agents v2 (the classic azure-ai-agents API retires 2027-03-31)
-azure-ai-projects>=2.1.0,<3
+# azure-ai-projects 2.5+ requires openai>=3, which this code has not been verified on.
+# Lift both caps together in one tested bump.
+azure-ai-projects>=2.1.0,<2.5
 azure-identity>=1.19.0
 
 # Responses, conversations, files and vector stores via project.get_openai_client()
-openai>=2.0
+openai>=2.8.0,<3
 
 # Config + data handling
 pyyaml>=6.0.2

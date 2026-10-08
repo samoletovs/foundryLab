@@ -194,7 +194,7 @@ class ClassicApiRemovedTests(unittest.TestCase):
         text = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
         packages = [line.split("#")[0].strip() for line in text.splitlines()]
         self.assertFalse([p for p in packages if p.lower().startswith("azure-ai-agents")])
-        self.assertIn("azure-ai-projects>=2.1.0,<3", packages)
+        self.assertIn("azure-ai-projects>=2.1.0,<2.5", packages)
 
     def test_no_python_file_imports_the_classic_sdk(self) -> None:
         pattern = re.compile(r"^\s*(from|import)\s+azure\.ai\.agents\b", re.MULTILINE)

@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install declared test dependencies
-        run: python -m pip install "azure-identity>=1.19.0" "azure-ai-projects>=2.1.0,<3" "openai>=2.0" "python-dotenv>=1.0.1" "pytest>=8.3.0" "ruff>=0.7.0"
+        run: python -m pip install "azure-identity>=1.19.0" "azure-ai-projects>=2.1.0,<2.5" "openai>=2.8.0,<3" "python-dotenv>=1.0.1" "pytest>=8.3.0" "ruff>=0.7.0"
       - name: Test synthetic evaluator and lab-memory agent without provider calls
         run: python -m pytest tests/test_model_refresh_eval.py tests/test_lab_memory_agent.py -q
       - name: Lint evaluation code
