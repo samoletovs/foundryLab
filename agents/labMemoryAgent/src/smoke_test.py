@@ -7,7 +7,8 @@ This validates that:
   - the file_search tool returns sensible chunks
   - the model produces answers grounded in our docs
 
-The agent is deleted at the end — production agent is provisioned in Phase 2.
+The temporary agent (all its versions) is deleted at the end — the production
+agent is provisioned by provision.py.
 """
 from __future__ import annotations
 
@@ -17,14 +18,10 @@ import sys
 import time
 from pathlib import Path
 
-from azure.ai.agents import AgentsClient
-from azure.ai.agents.models import (
-    FileSearchTool,
-    ListSortOrder,
-    MessageRole,
-)
-from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
+
+from client import ask_with
+from foundry import build_definition, make_project_client
 
 ENV_FILE = Path(__file__).resolve().parent.parent.parent.parent / ".env"
 STATE_FILE = Path(__file__).resolve().parent.parent / "config" / "ingest-state.json"
@@ -32,8 +29,11 @@ load_dotenv(ENV_FILE)
 
 state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
 vector_store_id = state["vector_store_id"]
+file_id_to_path = {f["file_id"]: f["source_path"] for f in state["files"]}
 deployment = os.environ["FOUNDRY_DEFAULT_DEPLOYMENT"]
 endpoint = os.environ["FOUNDRY_PROJECT_ENDPOINT"]
+
+TEST_AGENT_NAME = "lab-memory-test"
 
 QUESTIONS_GROUNDED = [
     "Why does foundryLab exist?",
@@ -52,23 +52,21 @@ Rules:
 
 
 def main() -> int:
-    client = AgentsClient(
-        endpoint=endpoint,
-        credential=DefaultAzureCredential(),
-    )
+    project = make_project_client(endpoint)
+    openai_client = project.get_openai_client()
 
     print(f"Using vector store {vector_store_id}\n")
 
-    file_search = FileSearchTool(vector_store_ids=[vector_store_id])
-
-    agent = client.create_agent(
-        model=deployment,
-        name="lab-memory-test",
-        instructions=INSTRUCTIONS,
-        tools=file_search.definitions,
-        tool_resources=file_search.resources,
+    agent = project.agents.create_version(
+        agent_name=TEST_AGENT_NAME,
+        definition=build_definition(
+            model=deployment,
+            instructions=INSTRUCTIONS,
+            temperature=0.2,
+            vector_store_id=vector_store_id,
+        ),
     )
-    print(f"Created test agent {agent.id}\n")
+    print(f"Created test agent {agent.name} version {agent.version}\n")
 
     failures = 0
     try:
@@ -78,44 +76,35 @@ def main() -> int:
                 # token-heavy (~5-15K each). Sleep between questions to stay
                 # well under the limit during this smoke test.
                 time.sleep(45)
-            thread = client.threads.create()
-            client.messages.create(
-                thread_id=thread.id, role=MessageRole.USER, content=question
-            )
-            run = client.runs.create_and_process(
-                thread_id=thread.id, agent_id=agent.id
+            result = ask_with(
+                openai_client,
+                agent_name=agent.name,
+                agent_version=agent.version,
+                file_id_to_path=file_id_to_path,
+                question=question,
             )
             print(f"Q: {question}")
-            print(f"   run.status = {run.status}")
-            if run.status != "completed":
-                print(f"   run.last_error = {run.last_error}")
+            print(f"   response.status = {result.raw_status}  id = {result.response_id}")
+            if result.error:
+                print(f"   response.error = {result.error}")
                 failures += 1
-                client.threads.delete(thread.id)
                 continue
 
-            msgs = list(
-                client.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
-            )
-            answer_msg = next(
-                m for m in reversed(msgs) if m.role == MessageRole.AGENT
-            )
-            answer_text = "\n".join(
-                t.text.value for t in answer_msg.text_messages
-            ).strip()
-            print(f"A: {answer_text[:500]}")
+            print(f"A: {result.answer[:500]}")
+            for source in result.citations:
+                print(f"   source: {source}")
             print()
-            client.threads.delete(thread.id)
 
             if question == QUESTION_UNGROUNDED:
-                if "I don't know" not in answer_text:
+                if "I don't know" not in result.answer:
                     print("  ⚠ FAIL: should have refused")
                     failures += 1
                 else:
                     print("  ✓ refused correctly")
                     print()
     finally:
-        client.delete_agent(agent.id)
-        print(f"Deleted test agent {agent.id}")
+        project.agents.delete(TEST_AGENT_NAME)
+        print(f"Deleted test agent {TEST_AGENT_NAME}")
 
     return failures
 

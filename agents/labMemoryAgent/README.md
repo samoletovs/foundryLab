@@ -2,6 +2,8 @@
 
 > **Status:** ✅ Phase 1 + 2 complete — persistent agent running
 > **Foundry feature focus:** Knowledge grounding (file search / vector store), retrieval evals, API-callable agent
+> **API:** Foundry Agents v2 (`azure-ai-projects` 2.x — versioned agent + Responses API). Migrated from the classic
+> `azure-ai-agents` API, which retires on 2027-03-31; see [docs/learnings.md](../../docs/learnings.md).
 
 ## Quick start
 
@@ -25,8 +27,17 @@ From workspace root:
 ```
 
 To **refresh** the corpus after editing docs/reports: re-run `ingest.py` (it
-deletes & rebuilds the vector store) then re-run `provision.py` (it updates
-the agent to point at the new store, same name same agent_id).
+deletes & rebuilds the vector store) then re-run `provision.py` (it publishes a
+new version of the `lab-memory` agent pointing at the new store and pins that
+version in `config/agent-state.json`). `provision.py` is idempotent: when the
+definition (model, instructions, temperature, vector store) is unchanged it
+reuses the latest version instead of creating another.
+
+Multi-turn use from Python: `conv = client.new_conversation()` then
+`client.ask(q, conversation_id=conv)`. One-shot calls are not stored.
+
+Offline tests (fake clients, no Azure): `python -m pytest tests/test_lab_memory_agent.py`
+from the foundryLab root.
 
 ## Files
 
@@ -34,10 +45,11 @@ the agent to point at the new store, same name same agent_id).
 |------|---------|
 | [config/sources.yaml](config/sources.yaml) | Declares which files to ingest (10 source groups, 56 files) |
 | [config/ingest-state.json](config/ingest-state.json) | Vector store ID + per-file mapping (gitignored output) |
-| [config/agent-state.json](config/agent-state.json) | Persistent agent ID (gitignored output) |
+| [config/agent-state.json](config/agent-state.json) | Agent name + pinned version (gitignored output) |
 | [src/config.py](src/config.py) | Constants: agent name, persona, paths, env loading |
+| [src/foundry.py](src/foundry.py) | Agents v2 helpers: client, idempotent versioning, response checks, citations |
 | [src/ingest.py](src/ingest.py) | Phase 1: upload files, create vector store |
-| [src/provision.py](src/provision.py) | Phase 2: create/update the persistent agent |
+| [src/provision.py](src/provision.py) | Phase 2: publish an agent version when the definition changes |
 | [src/client.py](src/client.py) | Reusable `ask(question)` API for other tools |
 | [src/ask.py](src/ask.py) | CLI wrapper |
 | [src/verify.py](src/verify.py) | Diagnostic listing of vector stores + files |
@@ -53,7 +65,7 @@ the agent to point at the new store, same name same agent_id).
                           ▼
             ┌────────────────────────────┐
             │  client.py — ask()         │
-            │  - thread per call         │
+            │  - pinned agent version    │
             │  - extract citations       │
             └─────────────┬──────────────┘
                           │

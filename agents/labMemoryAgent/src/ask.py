@@ -36,6 +36,8 @@ def main() -> int:
                     "citations": result.citations,
                     "status": result.raw_status,
                     "error": result.error,
+                    "response_id": result.response_id,
+                    "agent_version": result.agent_version,
                 },
                 indent=2,
             ),
