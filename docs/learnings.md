@@ -97,7 +97,8 @@ impact.
 ### 2026-05-09 — Phase 2 (persistent agent + client API) deployed
 **Observation:** Built `provision.py` (idempotent create-or-update),
 `client.py` (reusable `ask()`), and `ask.py` (CLI). Persistent agent
-`asst_I9vO5sAp69FmXwylop75vP2c` running. CLI returns clean answers with
+`asst_I9vO5sAp69FmXwylop75vP2c` running (classic Agents API id; superseded by the
+versioned `lab-memory` agent — see the 2026-10-08 migration entry). CLI returns clean answers with
 filename citations and JSON mode for downstream agents. Total Phase 2
 code: ~250 LOC of Python.
 **Implication:** Every other foundryLab agent can now `from client import ask`
@@ -128,7 +129,8 @@ actual SDK signature with `inspect.signature(...)` first. The Foundry
 portal's code-snippet generator may also produce stale code in some
 sections.
 **Action:** When stuck on API param errors, run
-`python -c "from azure.ai.agents.operations import X; import inspect; print(inspect.signature(X.method))"`.
+`python -c "from azure.ai.projects.operations import AgentsOperations as X; import inspect; print(inspect.signature(X.create_version))"`
+(the 2026-05 entry used the classic `azure.ai.agents` package, now removed).
 ---
 
 ### 2026-05-09 — Phase 3 (eval framework + prompt optimization) deployed
@@ -278,3 +280,43 @@ that we couldn't break with gpt-4o due to the runtime bug above.
 (path-aware ingest, focused chunks, low temperature, file_search-first
 prompt) is genuinely production-quality for a < 1 GB markdown corpus.
 Cumulative cost across all 4 phases: < €0.20. Idle: €0/mo.
+
+---
+
+### 2026-10-08 — labMemoryAgent migrated to Foundry Agents v2
+**Observation:** Azure retires the classic Agents API (`azure-ai-agents`:
+assistants, threads, messages, runs) on 2027-03-31 (advisory HYJP-QGZ). We
+moved to `azure-ai-projects` 2.x: `project.agents.create_version(agent_name=
+"lab-memory", definition=PromptAgentDefinition(model, instructions,
+temperature, tools=[FileSearchTool(vector_store_ids=[...])]))`, then
+`project.get_openai_client().responses.create(input=..., extra_body={
+"agent_reference": {"name", "version", "type": "agent_reference"}})`.
+Four things surprised us:
+1. **The classic vector store carried over.** `vs_3LAoDpvsFQj2fHCzVomxOnKM`
+   (built by the classic API) is visible through `openai.vector_stores` on
+   the project client with all 56 files, so no re-ingest was needed and the
+   local `file_id → source_path` map stayed valid.
+2. **Agents did not carry over.** The classic `asst_…` agent is invisible to
+   `project.agents.get("lab-memory")`; v2 starts at version 1 under the same
+   name. Classic agents must be deleted separately after cutover.
+3. **`create_version` is the only way to change an agent.** Versions are
+   immutable. In our test, sending an identical definition twice returned
+   the same version (the service de-duplicated it), but that is not
+   documented, so `provision.py` stores a SHA-256 of the definition we sent
+   in version metadata and skips the call when the latest version matches —
+   a no-op provision makes no write at all.
+4. **Status is the success signal.** A run used to be `completed` or not;
+   a response can be `failed`, `incomplete` (with partial text!) or
+   `completed` without text. `client.py` treats anything but `completed`
+   with text as an error, and offline tests prove it.
+**Implication:** Pin the version in `agent_reference` — an unpinned reference
+silently follows whatever version was published last, which makes eval
+results unreproducible. One-shot questions use `store=False` (the old
+create-then-delete-thread); multi-turn uses `openai.conversations.create()`.
+Citations still arrive as `file_citation` annotations with `file_id`, so the
+path map works unchanged.
+**Action:** Rewrote `client.py`, `provision.py`, `ingest.py`, `smoke_test.py`,
+`verify.py` and `evals/diag_agent.py` around a shared `src/foundry.py`;
+dropped `azure-ai-agents` from `requirements.txt`; added
+`tests/test_lab_memory_agent.py` (fake clients) to CI. The classic agents are
+left in place until the migration is merged, then deleted.

@@ -10,17 +10,27 @@ Example:
     print(result.answer)
     for c in result.citations:
         print(" -", c)
+
+Multi-turn (the agent remembers earlier turns of the same conversation):
+    from client import ask, new_conversation
+    conv = new_conversation()
+    ask("What is rosette?", conversation_id=conv)
+    ask("And what stack does it use?", conversation_id=conv)
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
+from typing import Any
 
-from azure.ai.agents import AgentsClient
-from azure.ai.agents.models import ListSortOrder, MessageRole
-from azure.identity import DefaultAzureCredential
+import openai
 
 from config import PROJECT_ENDPOINT, load_agent_state, load_ingest_state
+from foundry import (
+    agent_reference,
+    extract_answer_and_citations,
+    make_project_client,
+    response_error,
+)
 
 
 @dataclass
@@ -29,23 +39,38 @@ class AskResult:
     citations: list[str] = field(default_factory=list)
     raw_status: str = ""
     error: str | None = None
+    response_id: str | None = None
+    agent_version: str | None = None
 
 
-_client: AgentsClient | None = None
-_agent_id: str | None = None
-_file_id_to_path: dict[str, str] | None = None
+@dataclass
+class _Session:
+    project: Any
+    openai_client: Any
+    agent_name: str
+    agent_version: str
+    file_id_to_path: dict[str, str]
 
 
-def _ensure_initialized() -> tuple[AgentsClient, str, dict[str, str]]:
-    """Lazy initialize client, agent_id, and file-id-to-path map."""
-    global _client, _agent_id, _file_id_to_path
-    if _client is not None and _agent_id is not None and _file_id_to_path is not None:
-        return _client, _agent_id, _file_id_to_path
+_session: _Session | None = None
+
+
+def _ensure_initialized() -> _Session:
+    """Lazy initialize the clients, pinned agent version and file-id map."""
+    global _session
+    if _session is not None:
+        return _session
 
     state = load_agent_state()
     if not state:
         raise RuntimeError(
             "No agent state found. Run src/provision.py to create the agent.",
+        )
+    if not state.get("agent_version"):
+        raise RuntimeError(
+            "config/agent-state.json was written by the classic Agents API "
+            "(no agent_version). Re-run src/provision.py to create the "
+            "Foundry Agents v2 version.",
         )
 
     ingest = load_ingest_state()
@@ -53,96 +78,95 @@ def _ensure_initialized() -> tuple[AgentsClient, str, dict[str, str]]:
     # with the same basename (e.g. several README.md) would be indistinguishable
     # in citations. We keep a local mapping file_id -> original source path
     # in ingest-state.json and use it to resolve citations correctly.
-    _file_id_to_path = {f["file_id"]: f["source_path"] for f in ingest["files"]}
+    file_id_to_path = {f["file_id"]: f["source_path"] for f in ingest["files"]}
 
-    _client = AgentsClient(
-        endpoint=PROJECT_ENDPOINT,
-        credential=DefaultAzureCredential(),
+    project = make_project_client(PROJECT_ENDPOINT)
+    _session = _Session(
+        project=project,
+        openai_client=project.get_openai_client(),
+        agent_name=state["agent_name"],
+        agent_version=str(state["agent_version"]),
+        file_id_to_path=file_id_to_path,
     )
-    _agent_id = state["agent_id"]
-    return _client, _agent_id, _file_id_to_path
+    return _session
 
 
-def _extract_answer_and_citations(message) -> tuple[str, list[str]]:
-    """Pull text + file citation annotations out of an agent message."""
-    parts: list[str] = []
-    file_ids: list[str] = []
-    for block in message.text_messages:
-        text = block.text.value
-        annotations = getattr(block.text, "annotations", None) or []
-        for ann in annotations:
-            fc = getattr(ann, "file_citation", None)
-            if fc is None:
-                continue
-            file_id = getattr(fc, "file_id", None)
-            if file_id:
-                file_ids.append(file_id)
-        parts.append(text)
-    answer = "\n".join(parts).strip()
-    # Strip the inline cite markers like 【4:0†source】 since we surface
-    # citations as a separate list.
-    answer = re.sub(r"【[^】]+】", "", answer).strip()
-    return answer, file_ids
+def ask_with(
+    openai_client: Any,
+    *,
+    agent_name: str,
+    agent_version: str,
+    file_id_to_path: dict[str, str],
+    question: str,
+    conversation_id: str | None = None,
+) -> AskResult:
+    """Ask a specific pinned agent version through an OpenAI-compatible client."""
+    reference = agent_reference(agent_name, agent_version)
+    # One-shot questions are not stored (like the old delete-thread-after-use);
+    # a conversation id makes the service keep and replay prior turns.
+    turn = {"conversation": conversation_id} if conversation_id else {"store": False}
+    try:
+        response = openai_client.responses.create(
+            input=question,
+            extra_body={"agent_reference": reference},
+            **turn,
+        )
+    except openai.APIError as exc:
+        return AskResult(
+            answer="",
+            raw_status="error",
+            error=f"{type(exc).__name__}: {exc}",
+            agent_version=reference["version"],
+        )
+
+    status = str(getattr(response, "status", "") or "")
+    response_id = getattr(response, "id", None)
+    error = response_error(response)
+    if error:
+        return AskResult(
+            answer="",
+            raw_status=status,
+            error=error,
+            response_id=response_id,
+            agent_version=reference["version"],
+        )
+
+    answer, file_citations = extract_answer_and_citations(response)
+
+    # Resolve file_ids to ORIGINAL source paths (forward-slash) using the
+    # local ingest-state map. Foundry only stores file basenames so this
+    # local mapping is the single source of truth for unique citations.
+    citations: list[str] = []
+    seen: set[str] = set()
+    for file_id, filename in file_citations:
+        if file_id in seen:
+            continue
+        seen.add(file_id)
+        citations.append(file_id_to_path.get(file_id) or filename or file_id)
+
+    return AskResult(
+        answer=answer,
+        citations=citations,
+        raw_status=status,
+        response_id=response_id,
+        agent_version=reference["version"],
+    )
+
+
+def new_conversation() -> str:
+    """Create a server-side conversation for multi-turn use with `ask()`."""
+    session = _ensure_initialized()
+    return session.openai_client.conversations.create().id
 
 
 def ask(question: str, *, conversation_id: str | None = None) -> AskResult:
     """Ask the labMemoryAgent a question. Returns AskResult."""
-    client, agent_id, file_id_to_path = _ensure_initialized()
-
-    thread = client.threads.create() if conversation_id is None else None
-    thread_id = conversation_id or thread.id
-
-    try:
-        client.messages.create(
-            thread_id=thread_id,
-            role=MessageRole.USER,
-            content=question,
-        )
-        run = client.runs.create_and_process(
-            thread_id=thread_id,
-            agent_id=agent_id,
-        )
-        if str(run.status) != "RunStatus.COMPLETED" and run.status != "completed":
-            err = getattr(run, "last_error", None)
-            return AskResult(
-                answer="",
-                raw_status=str(run.status),
-                error=str(err) if err else "run did not complete",
-            )
-
-        msgs = list(
-            client.messages.list(
-                thread_id=thread_id,
-                order=ListSortOrder.ASCENDING,
-            ),
-        )
-        agent_msg = next(m for m in reversed(msgs) if m.role == MessageRole.AGENT)
-        answer, file_ids = _extract_answer_and_citations(agent_msg)
-
-        # Resolve file_ids to ORIGINAL source paths (forward-slash) using the
-        # local ingest-state map. Foundry only stores file basenames so this
-        # local mapping is the single source of truth for unique citations.
-        citations: list[str] = []
-        seen: set[str] = set()
-        for fid in file_ids:
-            if fid in seen:
-                continue
-            seen.add(fid)
-            if fid in file_id_to_path:
-                citations.append(file_id_to_path[fid])
-                continue
-            # Fallback: query Foundry for the basename if not in our map
-            try:
-                f = client.files.get(file_id=fid)
-                citations.append(getattr(f, "filename", fid))
-            except Exception:  # noqa: BLE001
-                citations.append(fid)
-
-        return AskResult(
-            answer=answer,
-            citations=citations,
-            raw_status=str(run.status),
-        )
-    finally:
-        if conversation_id is None:
-            client.threads.delete(thread_id)
+    session = _ensure_initialized()
+    return ask_with(
+        session.openai_client,
+        agent_name=session.agent_name,
+        agent_version=session.agent_version,
+        file_id_to_path=session.file_id_to_path,
+        question=question,
+        conversation_id=conversation_id,
+    )

@@ -5,6 +5,9 @@ Reads sources from `config/sources.yaml`, uploads each file to the Foundry
 project, and adds them to a single named vector store. Foundry handles
 chunking + embedding + indexing automatically (Basic agent setup).
 
+Uses the Foundry project's OpenAI client (`AIProjectClient.get_openai_client()`)
+for files and vector stores — the Foundry Agents v2 API.
+
 Idempotent behaviour:
   - On each run we list existing vector stores by name.
   - If one already exists, we delete it and recreate. This is simpler and
@@ -27,15 +30,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from azure.ai.agents import AgentsClient
-from azure.ai.agents.models import (
-    FilePurpose,
-    VectorStoreExpirationPolicy,
-    VectorStoreStaticChunkingStrategyOptions,
-    VectorStoreStaticChunkingStrategyRequest,
-)
-from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
+
+from foundry import make_project_client
 
 # --- Paths ------------------------------------------------------------------
 
@@ -55,7 +52,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 # Silence chatty Azure SDK loggers (HTTP request / identity probing)
-for noisy in ("azure.core.pipeline.policies.http_logging_policy", "azure.identity"):
+for noisy in ("azure.core.pipeline.policies.http_logging_policy", "azure.identity", "httpx"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger("ingest")
 
@@ -113,16 +110,14 @@ def load_sources() -> list[SourceFile]:
 # --- Foundry helpers --------------------------------------------------------
 
 
-def make_client() -> AgentsClient:
-    """Build an AgentsClient pointed at the foundryLab project."""
-    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
-    if not endpoint:
-        raise RuntimeError("FOUNDRY_PROJECT_ENDPOINT is not set; check foundryLab/.env")
+def make_client() -> Any:
+    """Build the project's OpenAI client pointed at the foundryLab project."""
+    endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
     log.info("Foundry endpoint: %s", endpoint)
-    return AgentsClient(endpoint=endpoint, credential=DefaultAzureCredential())
+    return make_project_client(endpoint).get_openai_client()
 
 
-def find_existing_store(client: AgentsClient, name: str) -> Any | None:
+def find_existing_store(client: Any, name: str) -> Any | None:
     """Return existing vector store with the given name, or None."""
     for store in client.vector_stores.list():
         if store.name == name:
@@ -130,11 +125,11 @@ def find_existing_store(client: AgentsClient, name: str) -> Any | None:
     return None
 
 
-def delete_store_and_files(client: AgentsClient, store: Any) -> None:
+def delete_store_and_files(client: Any, store: Any) -> None:
     """Delete a vector store and the underlying files it contained."""
     log.info("Deleting existing vector store %s (%s)", store.name, store.id)
     file_ids: list[str] = []
-    for vsf in client.vector_store_files.list(vector_store_id=store.id):
+    for vsf in client.vector_stores.files.list(vector_store_id=store.id):
         file_ids.append(vsf.id)
     client.vector_stores.delete(vector_store_id=store.id)
     log.info("  deleted vector store; cleaning up %d file(s)", len(file_ids))
@@ -161,7 +156,7 @@ def _build_path_header(src: SourceFile) -> str:
     )
 
 
-def upload_file(client: AgentsClient, src: SourceFile) -> str:
+def upload_file(client: Any, src: SourceFile) -> str:
     """Upload one file with a Source/Tags header prepended. Returns file_id."""
     suffix = src.path.suffix.lower()
     if suffix not in {".md", ".txt", ".json", ".yaml", ".yml"}:
@@ -176,13 +171,37 @@ def upload_file(client: AgentsClient, src: SourceFile) -> str:
 
     log.info("  upload  %s  (%d bytes + %d header)",
              src.relative_path, len(raw), len(payload) - len(raw))
-    result = client.files.upload_and_poll(
-        file=(safe_name, payload),
-        purpose=FilePurpose.AGENTS,
-        polling_interval=0.5,
-    )
+    # Processing is awaited by the vector-store file batch in build_vector_store.
+    result = client.files.create(file=(safe_name, payload), purpose="assistants")
     log.debug("    file_id=%s name=%s", result.id, getattr(result, "filename", "?"))
     return result.id
+
+
+def build_vector_store(client: Any, file_ids: list[str]) -> Any:
+    """Create the named store, add files in one batch, and fail unless indexed."""
+    store = client.vector_stores.create(
+        name=VECTOR_STORE_NAME,
+        expires_after={"anchor": "last_active_at", "days": 365},
+    )
+    # Smaller chunks (default is ~800 tokens) so each chunk is more focused and
+    # the # Source: header at the top of each file dominates a higher fraction
+    # of the embedding vector for short technical docs (READMEs, AGENTS.md).
+    batch = client.vector_stores.file_batches.create_and_poll(
+        vector_store_id=store.id,
+        file_ids=file_ids,
+        chunking_strategy={
+            "type": "static",
+            "static": {"max_chunk_size_tokens": 500, "chunk_overlap_tokens": 120},
+        },
+        poll_interval_ms=2000,
+    )
+    counts = batch.file_counts
+    if batch.status != "completed" or counts.failed or counts.completed != len(file_ids):
+        raise RuntimeError(
+            f"vector store {store.id} batch {batch.status}: "
+            f"{counts.completed}/{len(file_ids)} completed, {counts.failed} failed",
+        )
+    return client.vector_stores.retrieve(store.id)
 
 
 def ingest() -> None:
@@ -235,25 +254,11 @@ def ingest() -> None:
         VECTOR_STORE_NAME,
         len(file_ids),
     )
-    # Smaller chunks (default is ~800 tokens) so each chunk is more focused and
-    # the # Source: header at the top of each file dominates a higher fraction
-    # of the embedding vector for short technical docs (READMEs, AGENTS.md).
-    chunking = VectorStoreStaticChunkingStrategyRequest(
-        static=VectorStoreStaticChunkingStrategyOptions(
-            max_chunk_size_tokens=500,
-            chunk_overlap_tokens=120,
-        ),
-    )
-    store = client.vector_stores.create_and_poll(
-        file_ids=file_ids,
-        name=VECTOR_STORE_NAME,
-        expires_after=VectorStoreExpirationPolicy(
-            anchor="last_active_at",
-            days=365,
-        ),
-        chunking_strategy=chunking,
-        polling_interval=2.0,
-    )
+    try:
+        store = build_vector_store(client, file_ids)
+    except RuntimeError as exc:
+        log.error("%s. Not writing ingest-state.json.", exc)
+        sys.exit(1)
     log.info(
         "Vector store ready: id=%s status=%s files=%s",
         store.id,

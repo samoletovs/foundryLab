@@ -2,12 +2,12 @@
 # Install: pip install -r foundryLab/requirements.txt
 
 # Foundry SDK + auth
-azure-ai-projects>=1.0.0
-azure-ai-agents>=1.1.0
+# Foundry Agents v2 (the classic azure-ai-agents API retires 2027-03-31)
+azure-ai-projects>=2.1.0,<3
 azure-identity>=1.19.0
 
-# Foundry agents are OpenAI-compatible; openai client also works
-openai>=1.55.0
+# Responses, conversations, files and vector stores via project.get_openai_client()
+openai>=2.0
 
 # Config + data handling
 pyyaml>=6.0.2

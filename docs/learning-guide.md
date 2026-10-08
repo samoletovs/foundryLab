@@ -80,12 +80,13 @@ foundryLab/
 ├── agents/labMemoryAgent/
 │   ├── config/
 │   │   ├── sources.yaml                ← which local files to ingest
-│   │   ├── ingest-state.json           ← (gitignored) file_id → source_path map
-│   │   └── agent-state.json            ← (gitignored) persistent agent ID
+│   │   ├── ingest-state.json           ← (gitignored) vector store ID + file_id → source_path map
+│   │   └── agent-state.json            ← (gitignored) agent name + pinned version
 │   ├── src/
 │   │   ├── config.py                   ← persona, paths, env, model name
+│   │   ├── foundry.py                  ← shared Agents v2 helpers (versioning, response checks)
 │   │   ├── ingest.py                   ← uploads files + builds vector store
-│   │   ├── provision.py                ← creates / updates the agent
+│   │   ├── provision.py                ← creates a new agent version when the definition changes
 │   │   ├── client.py                   ← reusable ask() function for other tools
 │   │   └── ask.py                      ← CLI for humans
 │   └── evals/
@@ -140,10 +141,10 @@ Two non-obvious things to remember:
 | **Account** | Azure resource owning model deployments and projects | Power Platform tenant |
 | **Project** | Workspace for a particular agent or set of agents | Dataverse environment |
 | **Model deployment** | A specific OpenAI model provisioned for use | Deployed package version |
-| **Agent** | A configured assistant: model + instructions + tools | A custom workflow |
+| **Agent** | A named, versioned configuration: model + instructions + tools | A custom workflow (each publish = a version) |
 | **Tool** | Something the agent can call (file_search, code_interpreter, custom function) | Action in a workflow |
 | **Vector store** | Foundry's managed RAG layer — files + chunks + embeddings | Dataverse search but vectorized |
-| **Run** | One execution of the agent against a thread of messages | A workflow run |
+| **Response** | One execution of a pinned agent version against some input (optionally inside a conversation) | A workflow run |
 
 If you remember nothing else: **agent = (model + instructions + tools + memory)**.
 Every Foundry configuration page is just one of those four nouns.
@@ -238,6 +239,8 @@ ask the agent something." That sentence reframes most pilot conversations.
 does this:
 
 ```python
+openai = AIProjectClient(endpoint, DefaultAzureCredential()).get_openai_client()
+
 # 1. Read declarative source list with globs
 sources = load_sources()   # parses config/sources.yaml
 
@@ -245,22 +248,18 @@ sources = load_sources()   # parses config/sources.yaml
 for src in sources:
     header = f"# Source: {src.relative_path}\n# Tags: ...\n\n"
     payload = header.encode("utf-8") + src.path.read_bytes()
-    result = client.files.upload_and_poll(
-        file=(safe_name, payload),
-        purpose=FilePurpose.AGENTS,
-    )
+    result = openai.files.create(file=(safe_name, payload), purpose="assistants")
     file_ids.append(result.id)
 
-# 3. Build the vector store from those files
-store = client.vector_stores.create_and_poll(
+# 3. Build the vector store from those files (one batch, polled to completion)
+store = openai.vector_stores.create(name="lab-memory")
+openai.vector_stores.file_batches.create_and_poll(
+    vector_store_id=store.id,
     file_ids=file_ids,
-    name="lab-memory",
-    chunking_strategy=VectorStoreStaticChunkingStrategyRequest(
-        static=VectorStoreStaticChunkingStrategyOptions(
-            max_chunk_size_tokens=500,
-            chunk_overlap_tokens=120,
-        ),
-    ),
+    chunking_strategy={
+        "type": "static",
+        "static": {"max_chunk_size_tokens": 500, "chunk_overlap_tokens": 120},
+    },
 )
 ```
 
@@ -342,16 +341,17 @@ private corpus actually is.
 [`agents/labMemoryAgent/src/provision.py`](../agents/labMemoryAgent/src/provision.py):
 
 ```python
-file_search = FileSearchTool(vector_store_ids=[vector_store_id])
-
-agent = client.create_agent(
+definition = PromptAgentDefinition(
     model="gpt-4o-mini",                 # which LLM is the brain
-    name="lab-memory",                   # stable name → idempotent updates
     instructions=INSTRUCTIONS,           # the system prompt / persona
-    tools=file_search.definitions,       # what tools it can call
-    tool_resources=file_search.resources,
+    tools=[FileSearchTool(vector_store_ids=[vector_store_id])],  # what it can call
     temperature=0.2,                     # how deterministic the answers are
 )
+version, created = ensure_agent_version(  # src/foundry.py
+    project, "lab-memory", definition,   # stable name; versions are immutable
+)
+# -> project.agents.create_version(agent_name="lab-memory", definition=...)
+#    only when the definition hash differs from the latest version's
 ```
 
 [`config.py`](../agents/labMemoryAgent/src/config.py) holds the `INSTRUCTIONS`
@@ -366,9 +366,11 @@ string — about 300 words telling the model:
 
 #### What's actually happening
 
-Every Foundry agent is **configuration**, not code. The "agent" is a JSON
-record in the project saying: when someone sends me a message, use this model,
-follow these instructions, and you may use these tools.
+Every Foundry agent is **configuration**, not code. The "agent" is a named
+record in the project holding immutable *versions*; each version says: when
+someone sends me input, use this model, follow these instructions, and you may
+use these tools. Changing anything means publishing a new version, and callers
+pin the version they were tested against.
 
 Three knobs we tuned, in order of impact:
 
@@ -380,7 +382,7 @@ Three knobs we tuned, in order of impact:
    observed failures. The version that won says explicitly: *"Always call
    file_search before answering any grounded question."* That alone moved
    `has_citations` from 0.83 to 1.00.
-3. **`tools=file_search.definitions`** is the list of capabilities. Other
+3. **`tools=[FileSearchTool(...)]`** is the list of capabilities. Other
    options:
    - `CodeInterpreterTool` — runs Python in a sandbox; great for data analysis
    - `FunctionTool(name="get_invoice_by_id", ...)` — calls a user-defined
@@ -406,41 +408,38 @@ creative tasks (drafting marketing copy, generating ideas).
 
 ---
 
-### 3.4 Calling the agent — threads, runs, citations
+### 3.4 Calling the agent — responses, conversations, citations
 
 #### In our agent
 
 [`agents/labMemoryAgent/src/client.py`](../agents/labMemoryAgent/src/client.py):
 
 ```python
-def ask(question: str) -> AskResult:
-    client, agent_id, file_id_to_path = _ensure_initialized()
+def ask(question: str, *, conversation_id: str | None = None) -> AskResult:
+    # agent-state.json holds the name AND the version provision.py published
+    openai = project.get_openai_client()
 
-    # 1. A thread is a conversation container
-    thread = client.threads.create()
-
-    # 2. Add the user's message to it
-    client.messages.create(
-        thread_id=thread.id,
-        role=MessageRole.USER,
-        content=question,
+    # 1. One call runs the pinned agent version, tools included, to completion
+    response = openai.responses.create(
+        input=question,
+        extra_body={"agent_reference": {
+            "name": "lab-memory", "version": "1", "type": "agent_reference",
+        }},
+        # one-shot: don't keep it; multi-turn: reuse a conversation
+        **({"conversation": conversation_id} if conversation_id else {"store": False}),
     )
 
-    # 3. Run the agent against the thread; SDK polls until done
-    run = client.runs.create_and_process(
-        thread_id=thread.id,
-        agent_id=agent_id,
-    )
+    # 2. Anything but `completed` with text is an error, never an answer
+    if response.status != "completed" or not response.output_text:
+        return AskResult(answer="", error=..., raw_status=response.status)
 
-    # 4. Read the most recent agent message + extract citations
-    msgs = list(client.messages.list(thread_id=thread.id, ...))
-    agent_msg = next(m for m in reversed(msgs) if m.role == MessageRole.AGENT)
-    answer, file_ids = _extract_answer_and_citations(agent_msg)
+    # 3. Pull text + file_citation annotations from the output message
+    answer, file_citations = extract_answer_and_citations(response)
 
-    # 5. Resolve file_ids to original source paths
-    citations = [file_id_to_path.get(fid, "<unknown>") for fid in file_ids]
+    # 4. Resolve file_ids to original source paths
+    citations = [file_id_to_path.get(fid, filename) for fid, filename in file_citations]
 
-    return AskResult(answer=answer, citations=citations, ...)
+    return AskResult(answer=answer, citations=citations, response_id=response.id, ...)
 ```
 
 [`ask.py`](../agents/labMemoryAgent/src/ask.py) wraps that as a CLI;
@@ -450,36 +449,41 @@ def ask(question: str) -> AskResult:
 
 Three Foundry primitives at play:
 
-- **Thread** — an ordered list of messages between user and agent. Persistent.
-  You can have 1000 threads per project.
-- **Message** — a user or agent turn within a thread. Includes optional
-  attachments.
-- **Run** — *one execution of the agent against a thread*. The model decides
-  whether to call tools, consults retrieval, generates a response, and writes
-  it back as a new message. `create_and_process` is the SDK's polling helper.
+- **Agent reference** — `{name, version}` selecting an immutable agent version.
+  Leave out the version and you silently get whatever was published last;
+  we always pin it so eval results are reproducible.
+- **Response** — *one execution of the agent*. The model decides whether to
+  call tools, consults retrieval and generates output in a single synchronous
+  call. Its `status` is `completed`, `failed`, `incomplete` (possibly with
+  partial text), `cancelled`, `queued` or `in_progress`; only `completed`
+  counts as an answer.
+- **Conversation** — optional server-side history. `openai.conversations.create()`
+  returns an id; passing it as `conversation=` on each call gives multi-turn
+  memory (`client.new_conversation()` does this).
 
-A nice property: threads are stateful so you can build multi-turn dialogue by
-keeping the same `thread_id` across calls. We don't need that for the librarian,
-so we delete the thread after each question.
+The classic API needed four calls (create thread, add message, create-and-poll
+run, list messages) plus a thread delete; the new API is one call. We don't
+need memory for the librarian, so one-shot questions send `store=False`.
 
 The citation extraction is the only fiddly bit. Foundry annotates the answer
-text with markers like `【4:0†source】` pointing at chunks; we strip those for
-display and resolve the underlying file IDs against our local
-`ingest-state.json` map (because Foundry only stores basenames).
+text with `file_citation` annotations (and occasionally inline markers like
+`【4:0†source】`, which we strip for display); we resolve each annotation's
+`file_id` against our local `ingest-state.json` map (because Foundry only
+stores basenames).
 
 #### For a customer build
 
 Most customer agents will live behind one of these patterns:
 
-| Surface | How threads work |
+| Surface | How conversations work |
 |---|---|
-| **Teams bot via Copilot Studio** | Studio handles threads transparently |
-| **Web app / portal** | Store `thread_id` in user session; new conversation = new thread |
-| **Power Automate flow** | Stateless — new thread per invocation. Simpler. |
-| **D365 form embedded copilot** | Thread per record (e.g. one per case, one per invoice) keeps context relevant |
+| **Teams bot via Copilot Studio** | Studio handles conversations transparently |
+| **Web app / portal** | Store the `conversation` id in user session; new chat = `conversations.create()` |
+| **Power Automate flow** | Stateless — one `responses.create` per invocation with `store=False`. Simpler. |
+| **D365 form embedded copilot** | Conversation per record (e.g. one per case, one per invoice) keeps context relevant |
 
-**Multi-turn vs stateless:** for grounded knowledge agents, stateless (one thread
-per question) is usually the right default. It avoids confusing context bleed
+**Multi-turn vs stateless:** for grounded knowledge agents, stateless (one response
+per question, no conversation) is usually the right default. It avoids confusing context bleed
 between unrelated questions and keeps token costs predictable. Switch to
 multi-turn only when the user genuinely needs to follow up — e.g. an interactive
 troubleshooting flow.
@@ -717,7 +721,7 @@ These cost me hours; they will save you hours.
    enough to actually run an agent. You also need "Azure AI User" (data plane).
    For an agent runtime identity (managed identity), "Cognitive Services
    OpenAI User" gives inference access — but you also need "Azure AI User"
-   if the runtime needs to create threads or runs.
+   if the runtime needs to create agent versions, conversations or responses.
 
 3. **Foundry strips path prefixes from uploaded filenames.** If you upload 9
    files all called `README.md`, they all show as `README.md` in citations.
@@ -750,6 +754,12 @@ These cost me hours; they will save you hours.
 10. **The eval framework is more valuable than any individual agent.** A
     200-line Python eval runner is portable across Foundry, Copilot Studio,
     and custom code. Build it once, reuse on every customer engagement.
+
+11. **The classic Agents API (assistants/threads/runs) retires on
+    2027-03-31.** Build on `azure-ai-projects` 2.x (versioned agents +
+    Responses). When migrating, existing vector stores and files carry over;
+    classic `asst_…` agents do not, and versions are immutable — so make
+    provisioning idempotent and pin the version callers use.
 
 ---
 
@@ -798,7 +808,8 @@ end of this section; skip to them only after you've attempted each one.
 9. **2–3 sprints**, scoped as: pick corpus → build Foundry agent → build
    30-question golden set → iterate to ≥0.85 → wire into Teams → enable
    continuous eval.
-10. **Data-plane actions** — creating threads, runs, agents, files. AI
+10. **Data-plane actions** — creating agent versions, conversations,
+    responses, files. AI
     Developer is mostly management plane (deploy, list); AI User is what
     you need to actually use the project.
 
@@ -857,8 +868,8 @@ az cognitiveservices usage list --location swedencentral
 # Force a fresh AAD token (rather than `az account clear`!)
 az login --tenant <your-tenant-id>
 
-# List all agents in a Foundry project (using the SDK)
-python -c "from azure.ai.agents import AgentsClient; from azure.identity import DefaultAzureCredential; c = AgentsClient(endpoint='<endpoint>', credential=DefaultAzureCredential()); [print(a.id, a.name) for a in c.list_agents()]"
+# List all agents and their latest versions in a Foundry project (using the SDK)
+python -c "from azure.ai.projects import AIProjectClient; from azure.identity import DefaultAzureCredential; p = AIProjectClient(endpoint='<endpoint>', credential=DefaultAzureCredential()); [print(a.name, a.versions.latest.version) for a in p.agents.list()]"
 
 # Re-run the labMemoryAgent eval (after a prompt or model change)
 .\.venv\Scripts\python.exe foundryLab\agents\labMemoryAgent\evals\run_eval.py --label my-label
