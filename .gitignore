@@ -55,3 +55,9 @@ playground/
 
 # Local-only personal-info pattern overrides
 scripts/.leak-patterns.local.txt
+
+# Added by autopilot
+node_modules/
+*.png
+screenshots/
+.playwright-mcp/
