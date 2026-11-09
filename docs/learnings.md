@@ -341,12 +341,13 @@ so `client.py` found no `file_id` and the user would see the raw markers.
 **Implication:** Changing the model alone was not a safe cutover for
 lab-memory: the answers were right, but the user would have seen raw markers
 and no sources.
-**Cause:** The citations were not missing, they were plain text. luna wrote
-`filecite` plus `turn0fileN` markers (wrapped in invisible private-use
-characters) and, when one marker named several files, the service did not
-turn it into `file_citation` annotations. Single-source answers still got
-annotations. In our three runs every answer without annotations carried such a
-marker, and no refusal did.
+**Cause (observed, not documented):** The citations were not missing, they were
+plain text. luna wrote `filecite` plus `turn0fileN` markers (wrapped in
+invisible private-use characters). Every marker we saw named two or more
+results, and in the marker-only answers the service attached no
+`file_citation` annotations at all; other answers did get annotations. In our
+three runs every answer without annotations carried such a marker, and no
+refusal did.
 **Action:** `client.py` now asks for `include=["file_search_call.results"]`
 and `foundry.py` reads `turnN` as the N-th file_search call and `fileM` as its
 M-th result (one result is a chunk, so two results can be the same file),
@@ -375,8 +376,22 @@ it, none did in either run, and 4 answers per run relied on the parser alone.
 two of the four luna runs, and the plan report or `.github/VISION.md` in the
 others. The answer stays grounded, so this is a citation choice rather than the
 format failure, but it is why cited_expected is 1.0 in one fixed run and 0.917
-in the other. v1 cites three sources for it, luna one or two, which is also why
-citation_recall stays below v1's 0.75. We did not try an instruction change:
-the three allowed eval runs went on before, after and a replicate. lab-memory
-stays pinned to v1 (`gpt-4o-mini`, retires 2027-04-14) until someone runs
-`provision`; merging the branch changes nothing live.
+in the other. v1 cites three sources for it (AGENTS.md, README.md and a plan
+report), luna one in each run, which is also why citation_recall stays below
+v1's 0.75. We did not try an instruction change: the three allowed eval runs
+went on before, after and a replicate.
+
+**gpt-6-sol, one run (data point, n=1):** cited_expected 0.75 (9 of 12; two of
+the misses are HTTP 429s because Sol has capacity 50, the third is rosette
+again), citation_recall 0.556, has_citations 0.833, refusal_accuracy 0.667 (it
+answered "How many users does ChatGPT have?" from a plan report that states
+200 million-plus), 2 errors, 13.7 s mean latency. Of the 10 grounded questions
+it did answer, 9 hit the expected source and all 10 were cited; its two
+marker-only answers were resolved by the parser. At 20x luna's price it showed
+no clear quality advantage in this run, and at capacity 50 it rate-limited
+the eval.
+
+lab-memory's
+latest live version stays v1 (`gpt-4o-mini`, retires 2027-04-14) until someone
+runs `provision.py`, the only code path that publishes a version; merging the
+branch changes nothing live.

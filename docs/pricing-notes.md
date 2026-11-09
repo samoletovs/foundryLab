@@ -19,8 +19,11 @@ charges can increase the bill. Never apply the historical cached-mini blended
 rate below to these models or all shared-account tokens.
 
 The initial capacity-10 smoke deployments exposed only 10,000 tokens/minute,
-too small for existing bounded long prompts. Shared Luna therefore has capacity
-100 and Sol 50; this allocates quota without a fixed idle inference charge.
+too small for existing bounded long prompts. Shared Luna therefore started at
+capacity 100 and Sol 50; this allocates quota without a fixed idle inference
+charge. As of 2026-11-09 Luna is 250 (live and in `main.bicep`) and Sol is
+still 50: a 15-question lab-memory eval on Sol returned HTTP 429 on 2 questions
+at that capacity.
 Supported old deployments remain explicit rollback options during verification.
 Use `scripts/evaluate_model_refresh.py` for bounded synthetic JSON and tool
 compatibility checks. A five-case smoke gate is not evidence of better product

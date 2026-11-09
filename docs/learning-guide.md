@@ -341,12 +341,12 @@ private corpus actually is.
 [`agents/labMemoryAgent/src/provision.py`](../agents/labMemoryAgent/src/provision.py):
 
 ```python
-definition = PromptAgentDefinition(
-    model="gpt-4o-mini",                 # which LLM is the brain
+definition = build_definition(            # src/foundry.py wraps PromptAgentDefinition
+    model=DEPLOYMENT,                    # which LLM is the brain ("gpt-6-luna" by default)
     instructions=INSTRUCTIONS,           # the system prompt / persona
-    tools=[FileSearchTool(vector_store_ids=[vector_store_id])],  # what it can call
-    temperature=0.2,                     # how deterministic the answers are
-)
+    temperature=TEMPERATURE,             # 0.2: how deterministic the answers are
+    vector_store_id=vector_store_id,     # file_search over the lab-memory store
+)                                        # gpt-6-* also gets reasoning effort "none"
 version, created = ensure_agent_version(  # src/foundry.py
     project, "lab-memory", definition,   # stable name; versions are immutable
 )
@@ -691,8 +691,9 @@ to scope-creep into a multi-agent platform. Start small and ship.
    - Confluence space of operations runbooks
    - Folder of FDDs and change requests from a recent D365 implementation
    - Service desk knowledge base
-2. **Build a Foundry agent** with file_search over that corpus. Use
-   `gpt-4o-mini`, `temperature=0.2`, librarian-style instructions. **Steal
+2. **Build a Foundry agent** with file_search over that corpus. Use a small
+   current deployment (we use `gpt-6-luna`; `gpt-4o-mini` retires 2027-04-14),
+   `temperature=0.2`, librarian-style instructions. **Steal
    from our labMemoryAgent code.**
 3. **Build a 30-question golden dataset** with the customer's most frequent
    real questions. SMEs participate. Bill for this — it's worth it.
@@ -707,7 +708,8 @@ to scope-creep into a multi-agent platform. Start small and ship.
 For the customer conversation:
 
 - Idle Foundry cost: **€0**
-- Per-query cost on `gpt-4o-mini`: ~€0.005
+- Per-query cost on `gpt-4o-mini`: ~€0.005 (not re-measured on `gpt-6-luna`,
+  whose list price is lower — see `pricing-notes.md`)
 - 1 000 queries/month: ~€5
 - 10 000 queries/month: ~€50
 - For comparison: M365 Copilot is roughly €30/user/month — break-even calc
