@@ -48,6 +48,33 @@ def make_response(status: str = "completed", text: str = "Sweden Central.", **ex
     })
 
 
+def marker(*refs: str) -> str:
+    """The inline citation GPT-6 writes when the service does not turn it into an annotation."""
+    return "\ue200filecite" + "".join(f"\ue202{ref}" for ref in refs) + "\ue201"
+
+
+def make_marker_response(
+    text: str, *searches: list[tuple[str, str]], annotations: list[dict[str, Any]] | None = None,
+) -> Response:
+    """A completed answer; each search lists (file_id, filename). Annotations are absent unless given."""
+    output: list[dict[str, Any]] = [
+        {
+            "type": "file_search_call", "id": f"fs_{n}", "status": "completed", "queries": ["region"],
+            "results": [{"file_id": fid, "filename": name, "score": 0.03, "text": "chunk"} for fid, name in hits],
+        }
+        for n, hits in enumerate(searches)
+    ]
+    output.append({
+        "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "content": [{"type": "output_text", "text": text, "annotations": annotations or []}],
+    })
+    return Response.model_validate({
+        "id": "resp_1", "created_at": 0, "model": "gpt-6-luna", "object": "response",
+        "status": "completed", "parallel_tool_calls": True, "tool_choice": "auto", "tools": [],
+        "output": output,
+    })
+
+
 class StrictFakeOpenAI:
     """Mimics the Responses endpoint, refusing calls that are not pinned to an agent version."""
 
@@ -141,6 +168,45 @@ class CitationTests(unittest.TestCase):
         self.assertEqual(result.answer, "Sweden Central.")
         self.assertEqual(result.citations, ["foundryLab/docs/learnings.md", "orphan.md"])
         self.assertEqual((result.response_id, result.agent_version), ("resp_1", "3"))
+
+
+class InlineCitationMarkerTests(unittest.TestCase):
+    HITS = [("assistant-A", "learnings.md"), ("assistant-Z", "orphan.md"), ("assistant-B", "pricing-notes.md")]
+
+    def test_markers_are_resolved_to_the_search_results_they_point_at(self) -> None:
+        text = "Sweden Central, for GPT-6 capacity. " + marker("turn0file0", "turn0file2")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS)))
+        self.assertIsNone(result.error)
+        self.assertEqual(result.citations, ["foundryLab/docs/learnings.md", "pricing-notes.md"])
+
+    def test_markers_never_reach_the_visible_answer(self) -> None:
+        text = "Sweden Central. " + marker("turn0file1") + " It has GPT-6 capacity."
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS)))
+        self.assertEqual(result.answer, "Sweden Central. It has GPT-6 capacity.")
+        self.assertFalse([ch for ch in result.answer if "\ue000" <= ch <= "\uf8ff"])
+        self.assertNotIn("filecite", result.answer)
+
+    def test_markers_without_search_results_are_still_removed(self) -> None:
+        text = "Sweden Central. " + marker("turn0file0")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, [])))
+        self.assertEqual((result.answer, result.citations), ("Sweden Central.", []))
+
+    def test_markers_pointing_outside_the_results_are_not_cited(self) -> None:
+        text = "Sweden Central. " + marker("turn0file9", "turn1file0")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS)))
+        self.assertEqual((result.answer, result.citations), ("Sweden Central.", []))
+
+    def test_a_source_cited_by_annotation_and_marker_is_listed_once(self) -> None:
+        annotation = {"type": "file_citation", "file_id": "assistant-A", "filename": "learnings.md", "index": 3}
+        text = "Sweden Central. " + marker("turn0file0", "turn0file2")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS, annotations=[annotation])))
+        self.assertEqual(result.citations, ["foundryLab/docs/learnings.md", "pricing-notes.md"])
+
+    def test_every_call_requests_the_search_results(self) -> None:
+        fake = StrictFakeOpenAI(make_response())
+        ask(fake)
+        ask(fake, conversation_id="conv_1")
+        self.assertEqual([call["include"] for call in fake.calls], [["file_search_call.results"]] * 2)
 
 
 class FakeAgents:

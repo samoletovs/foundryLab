@@ -338,9 +338,45 @@ The five uncited luna answers were grounded and correct (region, Cosmos DB
 projects, Basic vs Standard setup). They cited sources as inline
 `fileciteturn0fileN` text markers instead of `file_citation` annotations,
 so `client.py` found no `file_id` and the user would see the raw markers.
-**Implication:** Changing the model alone is not a safe cutover for lab-memory.
-Before re-provisioning, either the instructions or the client must make luna
-produce (or map) real citations, and the eval must reach v1 again.
-**Action:** The luna code/default migration is held on branch
-`chore/aoai-retirement-luna`; lab-memory stays pinned to v1 (`gpt-4o-mini`,
-retires 2027-04-14) until the citation gap is fixed and re-evaluated.
+**Implication:** Changing the model alone was not a safe cutover for
+lab-memory: the answers were right, but the user would have seen raw markers
+and no sources.
+**Cause:** The citations were not missing, they were plain text. luna wrote
+`filecite` plus `turn0fileN` markers (wrapped in invisible private-use
+characters) and, when one marker named several files, the service did not
+turn it into `file_citation` annotations. Single-source answers still got
+annotations. In our three runs every answer without annotations carried such a
+marker, and no refusal did.
+**Action:** `client.py` now asks for `include=["file_search_call.results"]`
+and `foundry.py` reads `turnN` as the N-th file_search call and `fileM` as its
+M-th result (one result is a chunk, so two results can be the same file),
+cites that file and strips the marker from the text. Markers that point
+outside the results are dropped, never guessed. The mapping is not a
+documented contract; it matched the retrieved chunk in every case we checked
+(foundryLab README and vision for "why does foundryLab exist", WORKSPACE.md
+for "create a new project", the manifest, the tPlan README and the ops report
+for "which projects use Cosmos DB", learnings.md for "northeurope"). Offline
+tests fail without the change.
+
+Same harness, same day, luna probe (reasoning `none`, temperature 0.2):
+
+| Metric | luna, old client | luna, fixed client A | luna, fixed client B | v1 gpt-4o-mini |
+|---|---|---|---|---|
+| cited_expected | 0.667 | 1.0 | 0.917 | 1.0 |
+| citation_recall | 0.444 | 0.681 | 0.639 | 0.75 |
+| has_citations | 0.75 | 1.0 | 1.0 | 1.0 |
+| refusal_accuracy | 1.0 | 1.0 | 1.0 | 1.0 |
+| errors / mean latency | 0 / 4.0 s | 0 / 4.2 s | 0 / 4.3 s | 0 / 7.3 s |
+
+(The first measurement above, 0.583 / 0.361 / 0.583, is an earlier run of the
+same old client.) Before the fix 3 visible answers carried marker residue; after
+it, none did in either run, and 4 answers per run relied on the parser alone.
+**Residual:** "What is rosette and what does it do?" cites rosette/AGENTS.md in
+two of the four luna runs, and the plan report or `.github/VISION.md` in the
+others. The answer stays grounded, so this is a citation choice rather than the
+format failure, but it is why cited_expected is 1.0 in one fixed run and 0.917
+in the other. v1 cites three sources for it, luna one or two, which is also why
+citation_recall stays below v1's 0.75. We did not try an instruction change:
+the three allowed eval runs went on before, after and a replicate. lab-memory
+stays pinned to v1 (`gpt-4o-mini`, retires 2027-04-14) until someone runs
+`provision`; merging the branch changes nothing live.

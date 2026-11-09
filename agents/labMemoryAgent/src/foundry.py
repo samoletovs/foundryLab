@@ -117,6 +117,25 @@ def response_error(response: Any) -> str | None:
     return None
 
 
+# GPT-6 models sometimes cite as plain text instead of file_citation annotations:
+# <U+E200>filecite<U+E202>turn0file3<U+E202>turn0file5<U+E201>. The delimiters are
+# private-use characters. turnN is the N-th file_search call of the response and
+# fileM is the M-th result of that call (needs include=file_search_call.results).
+INLINE_CITATION = re.compile(r"[ \t]*[\ue000-\uf8ff]filecite((?:[\ue000-\uf8ff]turn\d+file\d+)+)[\ue000-\uf8ff]")
+INLINE_CITATION_REF = re.compile(r"turn(\d+)file(\d+)")
+
+
+def file_search_results(response: Any) -> list[list[tuple[str, str]]]:
+    """``(file_id, filename)`` of every result, one list per file_search call in output order."""
+    calls: list[list[tuple[str, str]]] = []
+    for item in getattr(response, "output", None) or []:
+        if getattr(item, "type", None) != "file_search_call":
+            continue
+        results = getattr(item, "results", None) or []
+        calls.append([(getattr(r, "file_id", "") or "", getattr(r, "filename", "") or "") for r in results])
+    return calls
+
+
 def extract_answer_and_citations(response: Any) -> tuple[str, list[tuple[str, str]]]:
     """Return the answer text and ``(file_id, filename)`` file-search citations."""
     parts: list[str] = []
@@ -132,6 +151,17 @@ def extract_answer_and_citations(response: Any) -> tuple[str, list[tuple[str, st
                 if getattr(ann, "type", None) == "file_citation" and getattr(ann, "file_id", None):
                     citations.append((ann.file_id, getattr(ann, "filename", "") or ""))
     answer = "\n".join(parts).strip() or (getattr(response, "output_text", "") or "").strip()
+
+    searches = file_search_results(response)
+
+    def resolve_inline(match: re.Match[str]) -> str:
+        for turn, index in INLINE_CITATION_REF.findall(match.group(1)):
+            hits = searches[int(turn)] if int(turn) < len(searches) else []
+            if int(index) < len(hits) and hits[int(index)][0]:
+                citations.append(hits[int(index)])
+        return ""
+
+    answer = INLINE_CITATION.sub(resolve_inline, answer)
     # Strip any inline markers like 【4:0†source】; citations are listed separately.
     answer = re.sub(r"【[^】]+】", "", answer).strip()
     return answer, citations

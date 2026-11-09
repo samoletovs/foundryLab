@@ -425,6 +425,8 @@ def ask(question: str, *, conversation_id: str | None = None) -> AskResult:
         extra_body={"agent_reference": {
             "name": "lab-memory", "version": "1", "type": "agent_reference",
         }},
+        # lets us resolve citations a model writes as inline text markers
+        include=["file_search_call.results"],
         # one-shot: don't keep it; multi-turn: reuse a conversation
         **({"conversation": conversation_id} if conversation_id else {"store": False}),
     )
@@ -433,7 +435,8 @@ def ask(question: str, *, conversation_id: str | None = None) -> AskResult:
     if response.status != "completed" or not response.output_text:
         return AskResult(answer="", error=..., raw_status=response.status)
 
-    # 3. Pull text + file_citation annotations from the output message
+    # 3. Pull text + citations from the output message: file_citation
+    #    annotations, plus inline markers resolved through the search results
     answer, file_citations = extract_answer_and_citations(response)
 
     # 4. Resolve file_ids to original source paths
@@ -470,6 +473,15 @@ text with `file_citation` annotations (and occasionally inline markers like
 `【4:0†source】`, which we strip for display); we resolve each annotation's
 `file_id` against our local `ingest-state.json` map (because Foundry only
 stores basenames).
+
+GPT-6 models sometimes skip the annotations and write plain-text markers
+instead: `filecite` plus `turn0file3`, wrapped in invisible private-use
+characters. Unhandled, the user sees raw markers and the answer looks
+uncited. We ask for `include=["file_search_call.results"]`, read `turnN` as the
+N-th file_search call of the response and `fileM` as its M-th result, and turn
+the marker into a normal citation. Microsoft does not document that mapping; it
+matched the retrieved chunk's content in every case we checked, and a marker
+that points outside the results is dropped rather than guessed.
 
 #### For a customer build
 
