@@ -8,7 +8,7 @@ param ownerObjectId = ''
 
 param chatModelName = 'gpt-6-luna'
 param chatModelVersion = '2026-09-22'
-param chatModelCapacity = 100
+param chatModelCapacity = 250
 
 param premiumChatModelName = 'gpt-6-sol'
 param premiumChatModelVersion = '2026-09-22'

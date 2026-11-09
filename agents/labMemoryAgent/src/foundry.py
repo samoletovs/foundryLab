@@ -17,7 +17,7 @@ import re
 from typing import Any
 
 from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import FileSearchTool, PromptAgentDefinition
+from azure.ai.projects.models import FileSearchTool, PromptAgentDefinition, Reasoning
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 
@@ -38,14 +38,26 @@ def make_project_client(endpoint: str) -> AIProjectClient:
     )
 
 
+def needs_reasoning_none(deployment: str) -> bool:
+    """GPT-6 deployments accept temperature only with reasoning effort "none".
+
+    Older deployments reject reasoning parameters, so they must not get one.
+    """
+    return deployment.startswith("gpt-6-")
+
+
 def build_definition(
     *, model: str, instructions: str, temperature: float, vector_store_id: str,
 ) -> PromptAgentDefinition:
+    extra: dict[str, Any] = {}
+    if needs_reasoning_none(model):
+        extra["reasoning"] = Reasoning(effort="none")
     return PromptAgentDefinition(
         model=model,
         instructions=instructions,
         temperature=temperature,
         tools=[FileSearchTool(vector_store_ids=[vector_store_id])],
+        **extra,
     )
 
 

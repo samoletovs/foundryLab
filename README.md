@@ -48,7 +48,7 @@ foundryLab/
 ## Stack
 
 - Microsoft Foundry (agents + evals + datasets)
-- Azure OpenAI (`gpt-4o-mini` default)
+- Azure OpenAI (`gpt-6-luna` default)
 - Bicep for any custom Azure resources
 - Python 3.11 (Foundry SDK)
 - DefaultAzureCredential everywhere — no API keys

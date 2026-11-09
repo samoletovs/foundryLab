@@ -56,6 +56,13 @@ class ContractGraderTests(unittest.TestCase):
             evaluation.call("gpt-6-sol", [{"role": "user", "content": "Return JSON"}])
         client.chat.completions.create.assert_not_called()
 
+    def test_default_run_never_calls_a_retiring_model(self) -> None:
+        # gpt-4o, gpt-4o-mini and gpt-4.1* retire 2027-04-14.
+        self.assertEqual(
+            [d for d in mod.DEFAULT_DEPLOYMENTS if d.startswith(("gpt-4o", "gpt-4.1"))], [],
+        )
+        self.assertIn("gpt-6-luna", mod.DEFAULT_DEPLOYMENTS)
+
 
 if __name__ == "__main__":
     unittest.main()

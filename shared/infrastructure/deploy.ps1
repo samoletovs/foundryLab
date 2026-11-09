@@ -70,7 +70,7 @@ Write-Host "  Resource grp: $ResourceGroupName"
 Write-Host ""
 Write-Host "  Quota in ${Location}:"
 $usage = az cognitiveservices usage list --location $Location -o json | ConvertFrom-Json
-foreach ($key in @('OpenAI.GlobalStandard.gpt-4o-mini','OpenAI.GlobalStandard.text-embedding-3-large')) {
+foreach ($key in @('OpenAI.GlobalStandard.gpt-6-luna','OpenAI.GlobalStandard.text-embedding-3-large')) {
   $q = $usage | Where-Object { $_.name.value -eq $key }
   if ($q) {
     Write-Host ("    {0,-50} {1}/{2}" -f $key, [int]$q.currentValue, [int]$q.limit)

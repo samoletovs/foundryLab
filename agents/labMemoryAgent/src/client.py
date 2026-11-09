@@ -33,6 +33,10 @@ from foundry import (
 )
 
 
+# Every response is bounded; librarian answers are a few paragraphs at most.
+MAX_OUTPUT_TOKENS = 2500
+
+
 @dataclass
 class AskResult:
     answer: str
@@ -109,6 +113,7 @@ def ask_with(
         response = openai_client.responses.create(
             input=question,
             extra_body={"agent_reference": reference},
+            max_output_tokens=MAX_OUTPUT_TOKENS,
             **turn,
         )
     except openai.APIError as exc:

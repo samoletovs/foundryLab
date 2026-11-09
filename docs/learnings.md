@@ -320,3 +320,27 @@ path map works unchanged.
 dropped `azure-ai-agents` from `requirements.txt`; added
 `tests/test_lab_memory_agent.py` (fake clients) to CI. The classic agents are
 left in place until the migration is merged, then deleted.
+
+### 2026-11-09 — gpt-6-luna drops citation annotations on 5 of 12 grounded evals
+**Observation:** Ran `evals/run_eval.py` against a probe agent (`gpt-6-luna`,
+reasoning effort `none`, temperature 0.2, same instructions and vector store)
+alongside the live lab-memory v1 (`gpt-4o-mini`), both on the same day:
+
+| Metric | luna probe | v1 gpt-4o-mini |
+|---|---|---|
+| cited_expected | 0.583 | 1.0 |
+| citation_recall | 0.361 | 0.75 |
+| has_citations | 0.583 | 1.0 |
+| refusal_accuracy | 1.0 | 1.0 |
+| errors / mean latency | 0 / 5.6 s | 0 / 7.3 s |
+
+The five uncited luna answers were grounded and correct (region, Cosmos DB
+projects, Basic vs Standard setup). They cited sources as inline
+`fileciteturn0fileN` text markers instead of `file_citation` annotations,
+so `client.py` found no `file_id` and the user would see the raw markers.
+**Implication:** Changing the model alone is not a safe cutover for lab-memory.
+Before re-provisioning, either the instructions or the client must make luna
+produce (or map) real citations, and the eval must reach v1 again.
+**Action:** The luna code/default migration is held on branch
+`chore/aoai-retirement-luna`; lab-memory stays pinned to v1 (`gpt-4o-mini`,
+retires 2027-04-14) until the citation gap is fixed and re-evaluated.

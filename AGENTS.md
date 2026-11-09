@@ -32,7 +32,8 @@ Foundry agent with its own purpose, deployment, and evaluation suite.
   Pure Sol synthesis can use `low`; use `max_completion_tokens`, not `max_tokens`.
 - Shared deployments are pay-per-token, not free. The approved pilot targets at most
   $10/month incremental inference within the lab's $80/credit-cycle ceiling.
-- `gpt-4o-mini` and `gpt-4.1` remain explicit supported rollback deployments during the pilot.
+- `gpt-4o-mini` and `gpt-4.1` retire on 2027-04-14. Until then they are rollback-only
+  (lab-memory v1 is `gpt-4o-mini`); no new code, default, or test may target them.
 - Speech-to-text uses `gpt-4o-mini-transcribe` (`2025-12-15`); never pick its retiring
   `2025-03-20` version. Keep Whisper until every consumer has passed migration checks.
 - Run `scripts/evaluate_model_refresh.py` only with synthetic fixtures and its cost ceiling;
