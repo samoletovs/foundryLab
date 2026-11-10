@@ -42,9 +42,36 @@ def make_response(status: str = "completed", text: str = "Sweden Central.", **ex
             }],
         })
     return Response.model_validate({
-        "id": "resp_1", "created_at": 0, "model": "gpt-4o-mini", "object": "response",
+        "id": "resp_1", "created_at": 0, "model": "gpt-6-luna", "object": "response",
         "status": status, "parallel_tool_calls": True, "tool_choice": "auto", "tools": [],
         "output": output, **extra,
+    })
+
+
+def marker(*refs: str) -> str:
+    """The inline citation GPT-6 writes when the service does not turn it into an annotation."""
+    return "\ue200filecite" + "".join(f"\ue202{ref}" for ref in refs) + "\ue201"
+
+
+def make_marker_response(
+    text: str, *searches: list[tuple[str, str]], annotations: list[dict[str, Any]] | None = None,
+) -> Response:
+    """A completed answer; each search lists (file_id, filename). Annotations are absent unless given."""
+    output: list[dict[str, Any]] = [
+        {
+            "type": "file_search_call", "id": f"fs_{n}", "status": "completed", "queries": ["region"],
+            "results": [{"file_id": fid, "filename": name, "score": 0.03, "text": "chunk"} for fid, name in hits],
+        }
+        for n, hits in enumerate(searches)
+    ]
+    output.append({
+        "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "content": [{"type": "output_text", "text": text, "annotations": annotations or []}],
+    })
+    return Response.model_validate({
+        "id": "resp_1", "created_at": 0, "model": "gpt-6-luna", "object": "response",
+        "status": "completed", "parallel_tool_calls": True, "tool_choice": "auto", "tools": [],
+        "output": output,
     })
 
 
@@ -143,6 +170,45 @@ class CitationTests(unittest.TestCase):
         self.assertEqual((result.response_id, result.agent_version), ("resp_1", "3"))
 
 
+class InlineCitationMarkerTests(unittest.TestCase):
+    HITS = [("assistant-A", "learnings.md"), ("assistant-Z", "orphan.md"), ("assistant-B", "pricing-notes.md")]
+
+    def test_markers_are_resolved_to_the_search_results_they_point_at(self) -> None:
+        text = "Sweden Central, for GPT-6 capacity. " + marker("turn0file0", "turn0file2")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS)))
+        self.assertIsNone(result.error)
+        self.assertEqual(result.citations, ["foundryLab/docs/learnings.md", "pricing-notes.md"])
+
+    def test_markers_never_reach_the_visible_answer(self) -> None:
+        text = "Sweden Central. " + marker("turn0file1") + " It has GPT-6 capacity."
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS)))
+        self.assertEqual(result.answer, "Sweden Central. It has GPT-6 capacity.")
+        self.assertFalse([ch for ch in result.answer if "\ue000" <= ch <= "\uf8ff"])
+        self.assertNotIn("filecite", result.answer)
+
+    def test_markers_without_search_results_are_still_removed(self) -> None:
+        text = "Sweden Central. " + marker("turn0file0")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, [])))
+        self.assertEqual((result.answer, result.citations), ("Sweden Central.", []))
+
+    def test_markers_pointing_outside_the_results_are_not_cited(self) -> None:
+        text = "Sweden Central. " + marker("turn0file9", "turn1file0")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS)))
+        self.assertEqual((result.answer, result.citations), ("Sweden Central.", []))
+
+    def test_a_source_cited_by_annotation_and_marker_is_listed_once(self) -> None:
+        annotation = {"type": "file_citation", "file_id": "assistant-A", "filename": "learnings.md", "index": 3}
+        text = "Sweden Central. " + marker("turn0file0", "turn0file2")
+        result = ask(StrictFakeOpenAI(make_marker_response(text, self.HITS, annotations=[annotation])))
+        self.assertEqual(result.citations, ["foundryLab/docs/learnings.md", "pricing-notes.md"])
+
+    def test_every_call_requests_the_search_results(self) -> None:
+        fake = StrictFakeOpenAI(make_response())
+        ask(fake)
+        ask(fake, conversation_id="conv_1")
+        self.assertEqual([call["include"] for call in fake.calls], [["file_search_call.results"]] * 2)
+
+
 class FakeAgents:
     def __init__(self, latest: Any | None) -> None:
         self.latest = latest
@@ -161,7 +227,7 @@ class FakeAgents:
 class IdempotentVersioningTests(unittest.TestCase):
     def definition(self, temperature: float = 0.2) -> Any:
         return foundry.build_definition(
-            model="gpt-4o-mini", instructions="x", temperature=temperature, vector_store_id="vs_1",
+            model="gpt-6-luna", instructions="x", temperature=temperature, vector_store_id="vs_1",
         )
 
     def test_creates_first_version(self) -> None:
@@ -204,6 +270,96 @@ class ClassicApiRemovedTests(unittest.TestCase):
             if ".venv" not in path.parts and pattern.search(path.read_text(encoding="utf-8"))
         ]
         self.assertEqual(offenders, [])
+
+
+RETIRING = re.compile(r"gpt-4o(?!-mini-transcribe)|gpt-4\.1")
+
+
+class Gpt6LunaMigrationTests(unittest.TestCase):
+    """gpt-4o, gpt-4o-mini and gpt-4.1* retire 2027-04-14; nothing may default to them."""
+
+    def test_default_deployment_is_gpt6_luna(self) -> None:
+        import importlib
+        import os
+        from unittest import mock
+
+        import config
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LAB_MEMORY_DEPLOYMENT", None)
+            self.assertEqual(importlib.reload(config).DEPLOYMENT, "gpt-6-luna")
+        importlib.reload(config)
+
+    def test_gpt6_definition_uses_reasoning_none_with_temperature(self) -> None:
+        body = foundry.build_definition(
+            model="gpt-6-luna", instructions="x", temperature=0.2, vector_store_id="vs_1",
+        ).as_dict()
+        self.assertEqual(body["reasoning"], {"effort": "none"})
+        self.assertEqual(body["temperature"], 0.2)
+
+    def test_reasoning_none_is_gated_to_gpt6_only(self) -> None:
+        self.assertTrue(foundry.needs_reasoning_none("gpt-6-luna"))
+        self.assertTrue(foundry.needs_reasoning_none("gpt-6-sol"))
+        self.assertFalse(foundry.needs_reasoning_none("gpt-4o-mini"))
+        body = foundry.build_definition(
+            model="gpt-4o-mini", instructions="x", temperature=0.2, vector_store_id="vs_1",
+        ).as_dict()
+        self.assertNotIn("reasoning", body)
+
+    def test_reasoning_change_creates_a_new_agent_version(self) -> None:
+        from types import SimpleNamespace
+
+        luna = foundry.build_definition(
+            model="gpt-6-luna", instructions="x", temperature=0.2, vector_store_id="vs_1",
+        ).as_dict()
+        without_reasoning = {k: v for k, v in luna.items() if k != "reasoning"}
+        self.assertIn("reasoning", luna)
+        self.assertNotEqual(
+            foundry.definition_fingerprint(SimpleNamespace(as_dict=lambda: luna)),
+            foundry.definition_fingerprint(SimpleNamespace(as_dict=lambda: without_reasoning)),
+        )
+
+    def test_agent_calls_bound_output_tokens(self) -> None:
+        fake = StrictFakeOpenAI(make_response())
+        ask(fake)
+        self.assertEqual(fake.calls[0]["max_output_tokens"], client.MAX_OUTPUT_TOKENS)
+        self.assertNotIn("max_tokens", fake.calls[0])
+
+    def test_prompt_rewrite_request_shape(self) -> None:
+        sys.path.insert(0, str(AGENT_DIR / "evals"))
+        import optimize_prompt
+
+        luna = optimize_prompt.rewrite_request("s", "u", deployment="gpt-6-luna")
+        self.assertNotIn("max_tokens", luna)
+        self.assertEqual(
+            (luna["model"], luna["max_completion_tokens"], luna["temperature"], luna["reasoning_effort"]),
+            ("gpt-6-luna", 800, 0.2, "none"),
+        )
+        self.assertNotIn("reasoning_effort", optimize_prompt.rewrite_request("s", "u", deployment="gpt-4.1"))
+
+    def test_no_live_path_names_a_retiring_model(self) -> None:
+        live = [
+            ".env.example", "README.md", "agents/labMemoryAgent/README.md",
+            "agents/labMemoryAgent/src/config.py", "agents/labMemoryAgent/evals/optimize_prompt.py",
+            "shared/infrastructure/deploy.ps1", "shared/infrastructure/smoke-test.ps1",
+            "shared/infrastructure/main.bicep", "shared/infrastructure/main.bicepparam",
+        ]
+        offenders = [p for p in live if RETIRING.search((REPO_ROOT / p).read_text(encoding="utf-8"))]
+        self.assertEqual(offenders, [])
+
+    def test_smoke_test_uses_gpt6_request_shape(self) -> None:
+        text = (REPO_ROOT / "shared/infrastructure/smoke-test.ps1").read_text(encoding="utf-8")
+        self.assertNotRegex(text, r"\bmax_tokens\b")
+        self.assertIn("max_completion_tokens", text)
+        self.assertIn("reasoning_effort = 'none'", text)
+
+    def test_bicep_declares_raised_luna_capacity(self) -> None:
+        infra = REPO_ROOT / "shared" / "infrastructure"
+        param = (infra / "main.bicepparam").read_text(encoding="utf-8")
+        bicep = (infra / "main.bicep").read_text(encoding="utf-8")
+        self.assertRegex(param, r"param chatModelName = 'gpt-6-luna'")
+        self.assertRegex(param, r"param chatModelCapacity = 250\b")
+        self.assertRegex(bicep, r"param chatModelCapacity int = 250\b")
 
 
 if __name__ == "__main__":

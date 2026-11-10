@@ -2,8 +2,8 @@
 Targeted prompt optimization using observed failures from baseline eval.
 
 Reads the latest baseline result, extracts failures (where cited_expected
-is False or has_citations is False), and asks GPT-4o-mini to rewrite the
-librarian prompt to address them.
+is False or has_citations is False), and asks the configured chat deployment
+(gpt-6-luna by default) to rewrite the librarian prompt to address them.
 
 Foundry's `prompt_optimize` MCP tool does roughly the same thing internally,
 but doing it ourselves means we control exactly which failures drive the
@@ -39,11 +39,32 @@ AGENT_DIR = EVAL_DIR.parent
 sys.path.insert(0, str(AGENT_DIR / "src"))
 
 from config import DEPLOYMENT, FOUNDRYLAB_DIR, INSTRUCTIONS  # noqa: E402
+from foundry import needs_reasoning_none  # noqa: E402
 
 RESULTS_DIR = EVAL_DIR / "results"
 CONFIG_DIR = AGENT_DIR / "config"
 
 load_dotenv(FOUNDRYLAB_DIR / ".env")
+
+
+def rewrite_request(system_prompt: str, user_payload: str, deployment: str = DEPLOYMENT) -> dict:
+    """Chat Completions kwargs valid on both GPT-6 and older deployments.
+
+    GPT-6 rejects ``max_tokens`` and accepts ``temperature`` only with
+    reasoning effort "none"; older deployments reject reasoning parameters.
+    """
+    request: dict = {
+        "model": deployment,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_payload},
+        ],
+        "temperature": 0.2,
+        "max_completion_tokens": 800,
+    }
+    if needs_reasoning_none(deployment):
+        request["reasoning_effort"] = "none"
+    return request
 
 
 def latest_baseline() -> Path:
@@ -146,15 +167,7 @@ def main() -> int:
         azure_ad_token_provider=token_provider,
     )
 
-    response = client.chat.completions.create(
-        model=DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": META_PROMPT},
-            {"role": "user", "content": user_payload},
-        ],
-        temperature=0.2,
-        max_tokens=800,
-    )
+    response = client.chat.completions.create(**rewrite_request(META_PROMPT, user_payload))
     new_prompt = response.choices[0].message.content.strip()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

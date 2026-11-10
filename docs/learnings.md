@@ -320,3 +320,78 @@ path map works unchanged.
 dropped `azure-ai-agents` from `requirements.txt`; added
 `tests/test_lab_memory_agent.py` (fake clients) to CI. The classic agents are
 left in place until the migration is merged, then deleted.
+
+### 2026-11-09 — gpt-6-luna drops citation annotations on 5 of 12 grounded evals
+**Observation:** Ran `evals/run_eval.py` against a probe agent (`gpt-6-luna`,
+reasoning effort `none`, temperature 0.2, same instructions and vector store)
+alongside the live lab-memory v1 (`gpt-4o-mini`), both on the same day:
+
+| Metric | luna probe | v1 gpt-4o-mini |
+|---|---|---|
+| cited_expected | 0.583 | 1.0 |
+| citation_recall | 0.361 | 0.75 |
+| has_citations | 0.583 | 1.0 |
+| refusal_accuracy | 1.0 | 1.0 |
+| errors / mean latency | 0 / 5.6 s | 0 / 7.3 s |
+
+The five uncited luna answers were grounded and correct (region, Cosmos DB
+projects, Basic vs Standard setup). They cited sources as inline
+`fileciteturn0fileN` text markers instead of `file_citation` annotations,
+so `client.py` found no `file_id` and the user would see the raw markers.
+**Implication:** Changing the model alone was not a safe cutover for
+lab-memory: the answers were right, but the user would have seen raw markers
+and no sources.
+**Cause (observed, not documented):** The citations were not missing, they were
+plain text. luna wrote `filecite` plus `turn0fileN` markers (wrapped in
+invisible private-use characters). Every marker we saw named two or more
+results, and in the marker-only answers the service attached no
+`file_citation` annotations at all; other answers did get annotations. In our
+three runs every answer without annotations carried such a marker, and no
+refusal did.
+**Action:** `client.py` now asks for `include=["file_search_call.results"]`
+and `foundry.py` reads `turnN` as the N-th file_search call and `fileM` as its
+M-th result (one result is a chunk, so two results can be the same file),
+cites that file and strips the marker from the text. Markers that point
+outside the results are dropped, never guessed. The mapping is not a
+documented contract; it matched the retrieved chunk in every case we checked
+(foundryLab README and vision for "why does foundryLab exist", WORKSPACE.md
+for "create a new project", the manifest, the tPlan README and the ops report
+for "which projects use Cosmos DB", learnings.md for "northeurope"). Offline
+tests fail without the change.
+
+Same harness, same day, luna probe (reasoning `none`, temperature 0.2):
+
+| Metric | luna, old client | luna, fixed client A | luna, fixed client B | v1 gpt-4o-mini |
+|---|---|---|---|---|
+| cited_expected | 0.667 | 1.0 | 0.917 | 1.0 |
+| citation_recall | 0.444 | 0.681 | 0.639 | 0.75 |
+| has_citations | 0.75 | 1.0 | 1.0 | 1.0 |
+| refusal_accuracy | 1.0 | 1.0 | 1.0 | 1.0 |
+| errors / mean latency | 0 / 4.0 s | 0 / 4.2 s | 0 / 4.3 s | 0 / 7.3 s |
+
+(The first measurement above, 0.583 / 0.361 / 0.583, is an earlier run of the
+same old client.) Before the fix 3 visible answers carried marker residue; after
+it, none did in either run, and 4 answers per run relied on the parser alone.
+**Residual:** "What is rosette and what does it do?" cites rosette/AGENTS.md in
+two of the four luna runs, and the plan report or `.github/VISION.md` in the
+others. The answer stays grounded, so this is a citation choice rather than the
+format failure, but it is why cited_expected is 1.0 in one fixed run and 0.917
+in the other. v1 cites three sources for it (AGENTS.md, README.md and a plan
+report), luna one in each run, which is also why citation_recall stays below
+v1's 0.75. We did not try an instruction change: the three allowed eval runs
+went on before, after and a replicate.
+
+**gpt-6-sol, one run (data point, n=1):** cited_expected 0.75 (9 of 12; two of
+the misses are HTTP 429s because Sol has capacity 50, the third is rosette
+again), citation_recall 0.556, has_citations 0.833, refusal_accuracy 0.667 (it
+answered "How many users does ChatGPT have?" from a plan report that states
+200 million-plus), 2 errors, 13.7 s mean latency. Of the 10 grounded questions
+it did answer, 9 hit the expected source and all 10 were cited; its two
+marker-only answers were resolved by the parser. At 20x luna's price it showed
+no clear quality advantage in this run, and at capacity 50 it rate-limited
+the eval.
+
+lab-memory's
+latest live version stays v1 (`gpt-4o-mini`, retires 2027-04-14) until someone
+runs `provision.py`, the only code path that publishes a version; merging the
+branch changes nothing live.

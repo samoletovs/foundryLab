@@ -2,13 +2,14 @@ $ErrorActionPreference = 'Stop'
 $token = az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv
 $body = @{
   messages = @(@{ role = 'user'; content = 'Reply with exactly: foundryLab is alive' })
-  max_tokens = 20
+  max_completion_tokens = 20
   temperature = 0
+  reasoning_effort = 'none'
 } | ConvertTo-Json -Depth 5 -Compress
 
 $resp = Invoke-RestMethod `
   -Method Post `
-  -Uri 'https://foundrylab-aiservices.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-10-21' `
+  -Uri 'https://foundrylab-aiservices.openai.azure.com/openai/deployments/gpt-6-luna/chat/completions?api-version=2024-10-21' `
   -Headers @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' } `
   -Body $body
 

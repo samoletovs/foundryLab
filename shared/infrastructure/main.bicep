@@ -26,7 +26,7 @@ param chatModelVersion string = '2026-09-22'
 @description('Capacity (thousands of tokens per minute) for the chat deployment')
 @minValue(1)
 @maxValue(9000)
-param chatModelCapacity int = 100
+param chatModelCapacity int = 250
 
 @description('Higher-quality chat model for synthesis-heavy agents (e.g. labMemoryAgent)')
 param premiumChatModelName string = 'gpt-6-sol'

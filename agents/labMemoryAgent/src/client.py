@@ -33,6 +33,14 @@ from foundry import (
 )
 
 
+# Every response is bounded; librarian answers are a few paragraphs at most.
+MAX_OUTPUT_TOKENS = 2500
+
+# The search results let foundry.extract_answer_and_citations resolve citations
+# a model writes as inline text markers instead of file_citation annotations.
+INCLUDE = ["file_search_call.results"]
+
+
 @dataclass
 class AskResult:
     answer: str
@@ -109,6 +117,8 @@ def ask_with(
         response = openai_client.responses.create(
             input=question,
             extra_body={"agent_reference": reference},
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+            include=INCLUDE,
             **turn,
         )
     except openai.APIError as exc:

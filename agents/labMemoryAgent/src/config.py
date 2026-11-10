@@ -27,10 +27,7 @@ VECTOR_STORE_NAME = "lab-memory"
 
 # --- Foundry config (from .env) ---
 PROJECT_ENDPOINT = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
-# Stay on gpt-4o-mini for now. We tried switching to gpt-4o (deployed, has
-# assistants=true, callable via REST) but the Foundry agent runtime returns
-# invalid_deployment. Documented in docs/learnings.md as an open issue.
-DEPLOYMENT = os.environ.get("LAB_MEMORY_DEPLOYMENT", "gpt-4o-mini")
+DEPLOYMENT = os.environ.get("LAB_MEMORY_DEPLOYMENT", "gpt-6-luna")
 
 # Low temperature for grounded-fact retrieval; default is ~1.0 which gives
 # stochastic answers across reruns.

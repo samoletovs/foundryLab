@@ -22,6 +22,8 @@ RATES = {
     "gpt-6-luna": (0.10, 0.50),
     "gpt-6-sol": (2.00, 10.00),
 }
+# gpt-4o-mini retires 2027-04-14: comparable on explicit request only, never by default.
+DEFAULT_DEPLOYMENTS = ("gpt-6-luna", "gpt-6-sol")
 OUTPUT_LIMIT = 1024
 
 
@@ -187,7 +189,7 @@ class Evaluation:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", required=True)
-    parser.add_argument("--deployments", nargs="+", choices=RATES, default=list(RATES))
+    parser.add_argument("--deployments", nargs="+", choices=RATES, default=list(DEFAULT_DEPLOYMENTS))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-cost-usd", type=float, default=0.50)
     args = parser.parse_args()

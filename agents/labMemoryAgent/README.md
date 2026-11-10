@@ -72,7 +72,7 @@ from the foundryLab root.
                           ▼
             ┌────────────────────────────┐
             │  Foundry agent: lab-memory │
-            │  - gpt-4o-mini             │
+            │  - gpt-6-luna              │
             │  - file_search tool        │
             │  - librarian persona       │
             └─────────────┬──────────────┘
